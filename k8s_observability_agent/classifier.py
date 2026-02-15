@@ -44,6 +44,7 @@ class MetricSignal:
     query: str
     description: str
     panel_type: str = "timeseries"
+    requires: str = ""  # deployment prerequisite, e.g. "replicas>1", "statefulset"
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,7 @@ class AlertSignal:
     severity: str = "warning"
     for_duration: str = "5m"
     summary: str = ""
+    requires: str = ""  # deployment prerequisite, e.g. "replicas>1", "statefulset"
 
 
 @dataclass(frozen=True)
@@ -106,6 +108,7 @@ _PG_PROFILE = _register(
                 "pg_replication_lag_bytes",
                 "pg_replication_lag_bytes",
                 "Replication lag in bytes (streaming replicas)",
+                requires="replicas>1",
             ),
             MetricSignal(
                 "pg_transactions_per_sec",
@@ -138,6 +141,7 @@ _PG_PROFILE = _register(
                 severity="critical",
                 for_duration="5m",
                 summary="PostgreSQL replication lag exceeds 100 MB",
+                requires="replicas>1",
             ),
             AlertSignal(
                 "PostgresDeadTuplesHigh",
@@ -204,6 +208,7 @@ _MYSQL_PROFILE = _register(
                 "mysql_replication_lag",
                 "mysql_slave_status_seconds_behind_master",
                 "Replication lag in seconds",
+                requires="replicas>1",
             ),
         ],
         alerts=[
@@ -220,6 +225,7 @@ _MYSQL_PROFILE = _register(
                 severity="critical",
                 for_duration="5m",
                 summary="MySQL replication lag exceeds 30 seconds",
+                requires="replicas>1",
             ),
             AlertSignal(
                 "MySQLSlowQueryRateHigh",
@@ -332,11 +338,11 @@ _MONGO_PROFILE = _register(
         golden_metrics=[
             MetricSignal("mongodb_connections_current", "mongodb_ss_connections{conn_type='current'}", "Current connections"),
             MetricSignal("mongodb_opcounters", "rate(mongodb_ss_opcounters_total[5m])", "Operation counters (insert/query/update/delete)"),
-            MetricSignal("mongodb_repl_lag", "mongodb_mongod_replset_member_optime_date - mongodb_mongod_replset_member_optime_date{state='PRIMARY'}", "Replication lag"),
+            MetricSignal("mongodb_repl_lag", "mongodb_mongod_replset_member_optime_date - mongodb_mongod_replset_member_optime_date{state='PRIMARY'}", "Replication lag", requires="replicas>1"),
             MetricSignal("mongodb_wiredtiger_cache", "mongodb_ss_wt_cache_bytes_currently_in_the_cache", "WiredTiger cache usage"),
         ],
         alerts=[
-            AlertSignal("MongoDBReplicationLag", "mongodb_mongod_replset_member_replication_lag > 10", severity="critical", for_duration="5m", summary="MongoDB replica set member lagging behind primary"),
+            AlertSignal("MongoDBReplicationLag", "mongodb_mongod_replset_member_replication_lag > 10", severity="critical", for_duration="5m", summary="MongoDB replica set member lagging behind primary", requires="replicas>1"),
             AlertSignal("MongoDBConnectionsHigh", "mongodb_ss_connections{conn_type='current'} > 5000", severity="warning", for_duration="5m", summary="MongoDB connection count high"),
         ],
         dashboard_tags=["mongodb", "database"],
@@ -389,8 +395,8 @@ _KAFKA_PROFILE = _register(
         ],
         alerts=[
             AlertSignal("KafkaConsumerLagHigh", "kafka_consumergroup_lag > 10000", severity="warning", for_duration="10m", summary="Kafka consumer group lag exceeds 10k messages"),
-            AlertSignal("KafkaUnderReplicated", "kafka_server_replicamanager_underreplicatedpartitions > 0", severity="critical", for_duration="5m", summary="Kafka has under-replicated partitions — risk of data loss"),
-            AlertSignal("KafkaISRShrinking", "rate(kafka_server_replicamanager_isrshrinks_total[5m]) > 0", severity="warning", for_duration="5m", summary="Kafka ISR is shrinking — broker may be unhealthy"),
+            AlertSignal("KafkaUnderReplicated", "kafka_server_replicamanager_underreplicatedpartitions > 0", severity="critical", for_duration="5m", summary="Kafka has under-replicated partitions — risk of data loss", requires="replicas>1"),
+            AlertSignal("KafkaISRShrinking", "rate(kafka_server_replicamanager_isrshrinks_total[5m]) > 0", severity="warning", for_duration="5m", summary="Kafka ISR is shrinking — broker may be unhealthy", requires="replicas>1"),
         ],
         dashboard_tags=["kafka", "messaging"],
         health_requirements=["Deploy kafka_exporter or enable JMX exporter for kafka_* metrics", "Monitor ZooKeeper (or KRaft controller) health separately"],

@@ -302,6 +302,28 @@ def _check_health_gaps(platform: Platform) -> str:
     return f"Found {len(gaps)} gap(s):\n" + "\n".join(gaps)
 
 
+def _check_requires(requires: str, wl: Any) -> bool:
+    """Check whether a signal's prerequisite is met by the workload.
+
+    Supported ``requires`` values:
+    * ``""``            — always applicable (no prerequisite)
+    * ``"replicas>1"``  — only relevant if the workload has >1 replica
+    * ``"statefulset"`` — only relevant if the workload is a StatefulSet
+
+    Returns *True* if the signal should be included as-is, *False* if it
+    should be annotated as conditional / skipped.
+    """
+    if not requires:
+        return True
+    req = requires.strip().lower()
+    if req == "replicas>1":
+        return (wl.replicas or 1) > 1
+    if req == "statefulset":
+        return wl.kind == "StatefulSet"
+    # Unknown prerequisite — include but let the LLM decide
+    return True
+
+
 def _get_workload_insights(platform: Platform, qualified_name: str = "") -> str:
     """Return archetype-specific observability knowledge for workloads."""
     workloads = platform.workloads
@@ -347,15 +369,26 @@ def _get_workload_insights(platform: Platform, qualified_name: str = "") -> str:
             if profile.golden_metrics:
                 lines.append("\n--- Golden Metrics ---")
                 for m in profile.golden_metrics:
-                    lines.append(f"  • {m.name}: {m.description}")
-                    lines.append(f"    PromQL: {m.query}")
+                    if m.requires and not _check_requires(m.requires, wl):
+                        lines.append(f"  • {m.name}: {m.description}")
+                        lines.append(f"    PromQL: {m.query}")
+                        lines.append(f"    ⚠ CONDITIONAL — requires: {m.requires} (not met by this workload, skip unless you know otherwise)")
+                    else:
+                        lines.append(f"  • {m.name}: {m.description}")
+                        lines.append(f"    PromQL: {m.query}")
 
             if profile.alerts:
                 lines.append("\n--- Recommended Alerts ---")
                 for a in profile.alerts:
-                    lines.append(f"  • {a.name} [{a.severity}] (for: {a.for_duration})")
-                    lines.append(f"    expr: {a.expr}")
-                    lines.append(f"    summary: {a.summary}")
+                    if a.requires and not _check_requires(a.requires, wl):
+                        lines.append(f"  • {a.name} [{a.severity}] (for: {a.for_duration})")
+                        lines.append(f"    expr: {a.expr}")
+                        lines.append(f"    summary: {a.summary}")
+                        lines.append(f"    ⚠ CONDITIONAL — requires: {a.requires} (not met by this workload, skip unless you know otherwise)")
+                    else:
+                        lines.append(f"  • {a.name} [{a.severity}] (for: {a.for_duration})")
+                        lines.append(f"    expr: {a.expr}")
+                        lines.append(f"    summary: {a.summary}")
 
             if profile.dashboard_tags:
                 lines.append(f"\nDashboard tags: {', '.join(profile.dashboard_tags)}")

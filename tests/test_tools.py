@@ -94,3 +94,69 @@ class TestExecuteTool:
         platform = _sample_platform()
         result = execute_tool(platform, "nonexistent", {})
         assert "Unknown tool" in result
+
+    def test_workload_insights_conditional_alerts_single_replica(self) -> None:
+        """Replication alerts should be marked CONDITIONAL for replicas=1."""
+        from k8s_observability_agent.models import ContainerSpec
+
+        pg_container = ContainerSpec(
+            name="postgres",
+            image="postgres:15",
+            ports=[5432],
+            env_vars=["POSTGRES_DB"],
+            archetype="database",
+            archetype_display="PostgreSQL",
+            archetype_confidence="high",
+            archetype_score=0.95,
+            archetype_match_source="image",
+            archetype_evidence=["image:postgres:15", "port:5432"],
+        )
+        deploy = K8sResource(
+            api_version="apps/v1",
+            kind="Deployment",
+            name="db",
+            namespace="default",
+            replicas=1,
+            source_file="db.yaml",
+            containers=[pg_container],
+            raw={},
+        )
+        from k8s_observability_agent.analyzer import build_platform
+
+        platform = build_platform([deploy], ["db.yaml"], [])
+        result = execute_tool(platform, "get_workload_insights", {})
+        assert "CONDITIONAL" in result
+        assert "PostgresReplicationLagHigh" in result
+
+    def test_workload_insights_replication_alerts_multi_replica(self) -> None:
+        """Replication alerts should NOT be marked CONDITIONAL for replicas>1."""
+        from k8s_observability_agent.models import ContainerSpec
+
+        pg_container = ContainerSpec(
+            name="postgres",
+            image="postgres:15",
+            ports=[5432],
+            env_vars=["POSTGRES_DB"],
+            archetype="database",
+            archetype_display="PostgreSQL",
+            archetype_confidence="high",
+            archetype_score=0.95,
+            archetype_match_source="image",
+            archetype_evidence=["image:postgres:15", "port:5432"],
+        )
+        deploy = K8sResource(
+            api_version="apps/v1",
+            kind="StatefulSet",
+            name="db",
+            namespace="default",
+            replicas=3,
+            source_file="db.yaml",
+            containers=[pg_container],
+            raw={},
+        )
+        from k8s_observability_agent.analyzer import build_platform
+
+        platform = build_platform([deploy], ["db.yaml"], [])
+        result = execute_tool(platform, "get_workload_insights", {})
+        assert "CONDITIONAL" not in result
+        assert "PostgresReplicationLagHigh" in result
