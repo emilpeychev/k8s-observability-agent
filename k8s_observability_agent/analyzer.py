@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from agent.models import K8sResource, Platform, ServiceRelationship
+from k8s_observability_agent.models import K8sResource, Platform, ServiceRelationship
 
 logger = logging.getLogger(__name__)
 

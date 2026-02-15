@@ -10,12 +10,12 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 
-from agent import __version__
-from agent.analyzer import build_platform, platform_report
-from agent.config import Settings
-from agent.core import run_agent
-from agent.renderer import write_outputs
-from agent.scanner import scan_repository
+from k8s_observability_agent import __version__
+from k8s_observability_agent.analyzer import build_platform, platform_report
+from k8s_observability_agent.config import Settings
+from k8s_observability_agent.core import run_agent
+from k8s_observability_agent.renderer import write_outputs
+from k8s_observability_agent.scanner import scan_repository
 
 console = Console()
 

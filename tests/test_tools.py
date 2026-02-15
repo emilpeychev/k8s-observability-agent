@@ -2,8 +2,8 @@
 
 import json
 
-from agent.models import K8sResource, Platform
-from agent.tools.registry import TOOL_DEFINITIONS, execute_tool
+from k8s_observability_agent.models import K8sResource, Platform
+from k8s_observability_agent.tools.registry import TOOL_DEFINITIONS, execute_tool
 
 
 def _sample_platform() -> Platform:
@@ -35,7 +35,7 @@ def _sample_platform() -> Platform:
         source_file="svc.yaml",
         raw={"spec": {"selector": {"app": "api"}}},
     )
-    from agent.analyzer import build_platform
+    from k8s_observability_agent.analyzer import build_platform
 
     return build_platform([deploy, svc], ["deploy.yaml", "svc.yaml"], [])
 

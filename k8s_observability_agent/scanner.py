@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Generator
 
 import pathspec
 import yaml
 from git import Repo as GitRepo
 
-from agent.classifier import classify_image
-from agent.config import Settings
-from agent.models import ContainerSpec, K8sResource
+from k8s_observability_agent.classifier import classify_image
+from k8s_observability_agent.config import Settings
+from k8s_observability_agent.models import ContainerSpec, K8sResource
 
 logger = logging.getLogger(__name__)
 
@@ -20,17 +22,32 @@ logger = logging.getLogger(__name__)
 WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
 K8S_TOP_LEVEL_KEYS = {"apiVersion", "kind", "metadata"}
 
+# Maximum file size we'll attempt to parse (1 MB). Prevents memory blowup on
+# large vendored files, Helm chart archives, terraform state, etc.
+MAX_FILE_SIZE_BYTES = 1_048_576  # 1 MB
 
-def clone_repo(url: str, branch: str = "main") -> Path:
-    """Clone a remote Git repository into a temporary directory and return its path."""
-    tmp = Path(tempfile.mkdtemp(prefix="k8s-obs-"))
-    logger.info("Cloning %s (branch=%s) → %s", url, branch, tmp)
-    GitRepo.clone_from(url, str(tmp), branch=branch, depth=1)
-    return tmp
+
+@contextmanager
+def clone_repo(url: str, branch: str = "main") -> Generator[Path, None, None]:
+    """Clone a remote Git repository into a temporary directory.
+
+    Yields the clone path, then cleans up the temp directory on exit.
+    Uses ``--depth=1 --single-branch`` for speed and disk safety.
+    """
+    with tempfile.TemporaryDirectory(prefix="k8s-obs-") as tmp:
+        tmp_path = Path(tmp)
+        logger.info("Cloning %s (branch=%s) → %s", url, branch, tmp_path)
+        GitRepo.clone_from(
+            url,
+            str(tmp_path),
+            branch=branch,
+            multi_options=["--depth=1", "--single-branch"],
+        )
+        yield tmp_path
 
 
 def _build_pathspec(patterns: list[str]) -> pathspec.PathSpec:
-    return pathspec.PathSpec.from_lines("gitignore", patterns)
+    return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
 
 
 def discover_manifest_files(
@@ -48,6 +65,13 @@ def discover_manifest_files(
     candidates: list[Path] = []
     for p in repo_root.rglob("*"):
         if not p.is_file():
+            continue
+        # Skip files over the size limit — they're almost certainly not K8s manifests.
+        try:
+            if p.stat().st_size > MAX_FILE_SIZE_BYTES:
+                logger.debug("Skipping oversized file (%d bytes): %s", p.stat().st_size, p)
+                continue
+        except OSError:
             continue
         rel = str(p.relative_to(repo_root))
         if inc_spec.match_file(rel) and (exc_spec is None or not exc_spec.match_file(rel)):
@@ -96,6 +120,25 @@ def _parse_container(raw: dict, labels: dict[str, str] | None = None) -> Contain
     )
 
 
+def _sanitize_raw(doc: dict) -> dict:
+    """Return a copy of *doc* with secret values redacted.
+
+    We keep the structure for relationship/selector analysis but strip
+    ``data`` and ``stringData`` from Secret resources so that sensitive
+    material never lingers in memory or leaks to the LLM.
+    """
+    kind = doc.get("kind", "")
+    if kind == "Secret":
+        sanitized = {k: v for k, v in doc.items() if k not in ("data", "stringData")}
+        # Preserve key names (without values) so downstream analysis knows
+        # which keys the secret provides.
+        for field in ("data", "stringData"):
+            if field in doc and isinstance(doc[field], dict):
+                sanitized[field] = {k: "REDACTED" for k in doc[field]}
+        return sanitized
+    return doc
+
+
 def _parse_resource(doc: dict, source_file: str) -> K8sResource:
     """Convert a raw manifest dict into a K8sResource model."""
     metadata = doc.get("metadata", {})
@@ -109,7 +152,7 @@ def _parse_resource(doc: dict, source_file: str) -> K8sResource:
         labels=metadata.get("labels", {}),
         annotations=metadata.get("annotations", {}),
         source_file=source_file,
-        raw=doc,
+        raw=_sanitize_raw(doc),
     )
 
     # Enrich workloads
@@ -163,13 +206,24 @@ def parse_manifest_file(path: Path, repo_root: Path | None = None) -> list[K8sRe
 def scan_repository(settings: Settings) -> tuple[list[K8sResource], list[str], list[str]]:
     """Scan a repository and return (resources, manifest_files, errors).
 
-    If *settings.github_url* is set the repo is cloned first.
+    If *settings.github_url* is set the repo is cloned first into a temp
+    directory that is automatically cleaned up after scanning.
     """
     if settings.github_url:
-        repo_root = clone_repo(settings.github_url, settings.branch)
+        with clone_repo(settings.github_url, settings.branch) as repo_root:
+            return _scan_directory(repo_root, settings)
     else:
         repo_root = Path(settings.repo_path).resolve()
+        if not repo_root.is_dir():
+            raise FileNotFoundError(f"Repository path does not exist: {repo_root}")
+        return _scan_directory(repo_root, settings)
 
+
+def _scan_directory(
+    repo_root: Path,
+    settings: Settings,
+) -> tuple[list[K8sResource], list[str], list[str]]:
+    """Internal: scan a directory after it's been resolved/cloned."""
     if not repo_root.is_dir():
         raise FileNotFoundError(f"Repository path does not exist: {repo_root}")
 

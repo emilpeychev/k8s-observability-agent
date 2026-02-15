@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from agent.classifier import get_profile
-from agent.models import Platform
+from k8s_observability_agent.classifier import get_profile
+from k8s_observability_agent.models import Platform
 
 # ──────────────────────────── Tool Schemas ─────────────────────────────────
 # Each schema follows the Anthropic tool-use format.

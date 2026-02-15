@@ -2,14 +2,14 @@
 
 from pathlib import Path
 
-from agent.models import (
+from k8s_observability_agent.models import (
     AlertRule,
     DashboardPanel,
     DashboardSpec,
     MetricRecommendation,
     ObservabilityPlan,
 )
-from agent.renderer import (
+from k8s_observability_agent.renderer import (
     render_grafana_dashboards,
     render_plan_summary,
     render_prometheus_rules,

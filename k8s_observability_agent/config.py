@@ -42,6 +42,15 @@ class Settings(BaseModel):
             "**/.git/**",
             "**/vendor/**",
             "**/__pycache__/**",
+            "**/charts/**",
+            "**/.terraform/**",
+            "**/dist/**",
+            "**/build/**",
+            "**/venv/**",
+            "**/.venv/**",
+            "**/target/**",
+            "**/.github/**",
+            "**/.circleci/**",
         ],
     )
 

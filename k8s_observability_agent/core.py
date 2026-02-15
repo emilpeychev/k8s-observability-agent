@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 import anthropic
@@ -11,9 +12,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 
-from agent.analyzer import platform_report
-from agent.config import Settings
-from agent.models import (
+from k8s_observability_agent.analyzer import platform_report
+from k8s_observability_agent.config import Settings
+from k8s_observability_agent.models import (
     AlertRule,
     DashboardPanel,
     DashboardSpec,
@@ -21,7 +22,7 @@ from agent.models import (
     ObservabilityPlan,
     Platform,
 )
-from agent.tools.registry import TOOL_DEFINITIONS, execute_tool
+from k8s_observability_agent.tools.registry import TOOL_DEFINITIONS, execute_tool
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -115,17 +116,60 @@ def run_agent(platform: Platform, settings: Settings) -> ObservabilityPlan:
 
     plan: ObservabilityPlan | None = None
 
+    MAX_RETRIES = 3
+
     for turn in range(1, settings.max_agent_turns + 1):
         logger.debug("Agent turn %d", turn)
         console.print(f"\n[dim]── Agent turn {turn} ──[/dim]")
 
-        response = client.messages.create(
-            model=settings.model,
-            max_tokens=settings.max_tokens,
-            system=SYSTEM_PROMPT,
-            tools=TOOL_DEFINITIONS,
-            messages=messages,
-        )
+        # ---------- LLM call with retries ----------
+        response = None
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                response = client.messages.create(
+                    model=settings.model,
+                    max_tokens=settings.max_tokens,
+                    system=SYSTEM_PROMPT,
+                    tools=TOOL_DEFINITIONS,
+                    messages=messages,
+                )
+                break  # success
+            except anthropic.RateLimitError as exc:
+                wait = 2 ** attempt
+                console.print(
+                    f"  [yellow]Rate-limited (attempt {attempt}/{MAX_RETRIES}), "
+                    f"retrying in {wait}s …[/yellow]"
+                )
+                logger.warning("Rate-limited: %s — retrying in %ds", exc, wait)
+                time.sleep(wait)
+            except anthropic.APIConnectionError as exc:
+                console.print(f"\n[red]Connection error: {exc}[/red]")
+                logger.error("API connection error: %s", exc)
+                if attempt < MAX_RETRIES:
+                    time.sleep(2 ** attempt)
+                    continue
+                console.print(
+                    "[red]Could not reach the Anthropic API. "
+                    "Run [bold]k8s-obs scan[/bold] for offline analysis.[/red]"
+                )
+                return ObservabilityPlan(
+                    platform_summary="Agent could not reach the Anthropic API.",
+                    recommendations=["Run 'k8s-obs scan' for offline structural analysis."],
+                )
+            except anthropic.APIStatusError as exc:
+                console.print(f"\n[red]API error ({exc.status_code}): {exc.message}[/red]")
+                logger.error("API status error: %s", exc)
+                return ObservabilityPlan(
+                    platform_summary=f"Anthropic API error: {exc.message}",
+                    recommendations=["Check your API key and account status, then retry."],
+                )
+
+        if response is None:
+            console.print("[red]Exhausted retries contacting the API.[/red]")
+            return ObservabilityPlan(
+                platform_summary="Agent exhausted retries contacting the Anthropic API.",
+                recommendations=["Run 'k8s-obs scan' for offline structural analysis."],
+            )
 
         # Process content blocks
         assistant_content: list[dict[str, Any]] = []

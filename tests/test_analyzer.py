@@ -1,7 +1,7 @@
 """Tests for agent.analyzer."""
 
-from agent.analyzer import build_platform, build_relationships, platform_report
-from agent.models import K8sResource
+from k8s_observability_agent.analyzer import build_platform, build_relationships, platform_report
+from k8s_observability_agent.models import K8sResource
 
 
 def _make_deployment(name: str, namespace: str = "default", labels: dict | None = None) -> K8sResource:

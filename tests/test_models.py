@@ -1,6 +1,6 @@
 """Tests for agent.models."""
 
-from agent.models import (
+from k8s_observability_agent.models import (
     AlertRule,
     DashboardPanel,
     DashboardSpec,

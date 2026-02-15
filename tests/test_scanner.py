@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from agent.scanner import discover_manifest_files, parse_manifest_file
+from k8s_observability_agent.scanner import discover_manifest_files, parse_manifest_file
 
 
 class TestDiscoverManifestFiles:

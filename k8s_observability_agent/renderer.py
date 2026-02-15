@@ -4,20 +4,26 @@ from __future__ import annotations
 
 import json
 import logging
+from importlib.resources import files as importlib_files
 from pathlib import Path
 
-from jinja2 import Environment, PackageLoader, select_autoescape
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from agent.models import ObservabilityPlan
+from k8s_observability_agent.models import ObservabilityPlan
 
 logger = logging.getLogger(__name__)
 
-TEMPLATES_DIR = Path(__file__).parent / "templates"
+# Resolve the templates directory via importlib.resources so it works in
+# both editable installs and built wheels / sdists.
+_TEMPLATES_REF = importlib_files("k8s_observability_agent") / "templates"
 
 
 def _get_jinja_env() -> Environment:
+    # importlib.resources may return a Traversable that isn't on the real
+    # filesystem (e.g. inside a zip).  Use as_posix() on the resolved path.
+    templates_dir = str(_TEMPLATES_REF)
     return Environment(
-        loader=PackageLoader("agent", "templates"),
+        loader=FileSystemLoader(templates_dir),
         autoescape=select_autoescape(default=False),
         trim_blocks=True,
         lstrip_blocks=True,

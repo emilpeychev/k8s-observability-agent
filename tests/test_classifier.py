@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent.classifier import (
+from k8s_observability_agent.classifier import (
     ARCHETYPE_CACHE,
     ARCHETYPE_CUSTOM_APP,
     ARCHETYPE_DATABASE,
