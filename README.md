@@ -203,8 +203,113 @@ The LLM's system prompt instructs it to modulate output based on classification 
 
 ```bash
 pip install -e ".[dev]"
-pytest                     # 94 tests
-ruff check agent/ tests/   # lint
+pytest                     # 106 tests
+ruff check . && ruff format --check .
+```
+
+## Step-by-step guide
+
+### 1. Install
+
+```bash
+git clone https://github.com/emilpeychev/k8s-observability-agent.git
+cd k8s-observability-agent
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+### 2. Set your API key
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+You can also pass it inline with `--api-key`.
+
+### 3. Point the agent at a repository
+
+**Local repo** — if your Kubernetes manifests live on disk:
+
+```bash
+k8s-obs analyze /path/to/my-k8s-repo
+```
+
+**GitHub repo** — the agent will shallow-clone it for you:
+
+```bash
+k8s-obs analyze --github https://github.com/org/infra --branch main
+```
+
+### 4. Read the output
+
+After the agent finishes, check the `observability-output/` directory (or the path you set with `-o`):
+
+```
+observability-output/
+  prometheus-rules.yml      # Drop into Prometheus / Thanos / Mimir
+  grafana-dashboard-*.json  # Import into Grafana
+  observability-plan.md     # Human-readable summary & recommendations
+```
+
+### 5. Scan only (no AI, no API key needed)
+
+If you just want the platform analysis — workload classification, telemetry readiness, health gaps — without generating monitoring configs:
+
+```bash
+k8s-obs scan /path/to/my-k8s-repo
+k8s-obs scan --github https://github.com/org/infra
+```
+
+This prints:
+
+- Discovered resources & relationships
+- Workload classification results (archetype, profile, confidence)
+- Telemetry capability inference (exporter detected / not detected)
+- Observability readiness verdict per workload (READY / PARTIAL / NOT READY)
+- Health gaps (missing probes, resource limits, exporters)
+
+### 6. Interpret the readiness verdicts
+
+The agent checks whether each workload's domain metrics are actually collectible from the manifests:
+
+| Verdict | Meaning | Action |
+|---------|---------|--------|
+| **READY** | Metrics exporter present + Prometheus scrape path configured | Alerts will fire — no changes needed |
+| **PARTIAL** | Exporter *or* scrape config present, but not both | Add the missing piece (e.g. `prometheus.io/scrape: "true"` annotation, or deploy the exporter sidecar) |
+| **NOT READY** | No metrics exposure detected in manifests | Deploy the recommended exporter sidecar and add scrape configuration |
+
+Signals marked **CONDITIONAL** in the output include a specific remediation action, e.g.:
+
+```
+⚠ CONDITIONAL — not collectable: deploy postgres_exporter sidecar
+```
+
+### 7. Common workflows
+
+**Review a microservices platform for monitoring gaps:**
+
+```bash
+k8s-obs scan --github https://github.com/myorg/platform
+# Look at the "Observability Readiness" section — which workloads need exporters?
+```
+
+**Generate a full monitoring stack for a repo:**
+
+```bash
+k8s-obs analyze --github https://github.com/myorg/platform -o monitoring/ -v
+# -v shows the agent's reasoning as it inspects each workload
+```
+
+**Check a single namespace's manifests:**
+
+```bash
+k8s-obs scan ./deploy/staging/
+```
+
+**Use a different Claude model:**
+
+```bash
+k8s-obs analyze ./infra --model claude-sonnet-4-20250514
 ```
 
 ## License
