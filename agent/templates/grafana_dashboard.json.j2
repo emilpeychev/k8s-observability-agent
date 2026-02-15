@@ -1,0 +1,52 @@
+{
+  "__generated_by": "k8s-observability-agent",
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+{% for panel in dashboard.panels %}
+    {
+      "id": {{ loop.index }},
+      "title": "{{ panel.title }}",
+      "type": "{{ panel.panel_type | default('timeseries') }}",
+      "description": "{{ panel.description | default('') }}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": {{ (loop.index0 % 2) * 12 }},
+        "y": {{ (loop.index0 // 2) * 8 }}
+      },
+      "targets": [
+{% for query in panel.queries %}
+        {
+          "expr": {{ query | tojson }},
+          "legendFormat": "{% raw %}{{instance}}{% endraw %}",
+          "refId": "{{ 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[loop.index0 % 26] }}"
+        }{{ "," if not loop.last else "" }}
+{% endfor %}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false
+          }
+        }
+      }
+    }{{ "," if not loop.last else "" }}
+{% endfor %}
+  ],
+  "schemaVersion": 39,
+  "tags": {{ dashboard.tags | tojson }},
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "{{ dashboard.title }}",
+  "description": "{{ dashboard.description | default('') }}",
+  "uid": "{{ dashboard.title | lower | replace(' ', '-') | truncate(40, False, '') }}"
+}
