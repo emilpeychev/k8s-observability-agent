@@ -64,7 +64,9 @@ class TestExecuteTool:
 
     def test_get_resource_detail(self) -> None:
         platform = _sample_platform()
-        result = execute_tool(platform, "get_resource_detail", {"qualified_name": "default/Deployment/api"})
+        result = execute_tool(
+            platform, "get_resource_detail", {"qualified_name": "default/Deployment/api"}
+        )
         parsed = json.loads(result)
         assert parsed["name"] == "api"
         assert parsed["kind"] == "Deployment"
@@ -201,6 +203,134 @@ class TestExecuteTool:
         for i, line in enumerate(lines):
             if "PostgresTooManyConnections" in line:
                 # Check the next few lines for CONDITIONAL
-                nearby = "\n".join(lines[i:i + 3])
+                nearby = "\n".join(lines[i : i + 3])
                 assert "CONDITIONAL" not in nearby
                 break
+
+    def test_conditional_includes_specific_exporter_name(self) -> None:
+        """CONDITIONAL messages should name the specific exporter to deploy."""
+        from k8s_observability_agent.models import ContainerSpec
+
+        pg_container = ContainerSpec(
+            name="postgres",
+            image="postgres:15",
+            ports=[5432],
+            archetype="database",
+            archetype_display="PostgreSQL",
+            archetype_confidence="high",
+            archetype_score=0.95,
+            archetype_match_source="image",
+        )
+        deploy = K8sResource(
+            api_version="apps/v1",
+            kind="Deployment",
+            name="db",
+            namespace="default",
+            replicas=1,
+            source_file="db.yaml",
+            containers=[pg_container],
+            telemetry=[],
+            raw={},
+        )
+        from k8s_observability_agent.analyzer import build_platform
+
+        platform = build_platform([deploy], ["db.yaml"], [])
+        result = execute_tool(platform, "get_workload_insights", {})
+        # Should mention the specific exporter name in remediation
+        assert "deploy postgres_exporter sidecar" in result
+
+    def test_observability_readiness_verdict_ready(self) -> None:
+        """Workload with exporter + scrape annotations should be READY."""
+        from k8s_observability_agent.models import ContainerSpec
+
+        container = ContainerSpec(
+            name="app",
+            image="nginx:latest",
+            ports=[80],
+            archetype="web-server",
+            archetype_display="Nginx",
+            archetype_confidence="high",
+            archetype_score=0.85,
+            archetype_match_source="image",
+        )
+        deploy = K8sResource(
+            api_version="apps/v1",
+            kind="Deployment",
+            name="web",
+            namespace="default",
+            replicas=1,
+            source_file="web.yaml",
+            containers=[container],
+            telemetry=["exporter:nginx_exporter", "scrape_annotations"],
+            raw={},
+        )
+        from k8s_observability_agent.analyzer import build_platform
+
+        platform = build_platform([deploy], ["web.yaml"], [])
+        result = execute_tool(platform, "get_workload_insights", {})
+        assert "READY" in result
+        assert "exporter present + scrape path configured" in result
+
+    def test_observability_readiness_verdict_not_ready(self) -> None:
+        """Workload with no telemetry should be NOT READY."""
+        from k8s_observability_agent.models import ContainerSpec
+
+        container = ContainerSpec(
+            name="app",
+            image="myapp:latest",
+            ports=[8080],
+            archetype="custom-app",
+            archetype_display="Custom Application",
+            archetype_confidence="low",
+            archetype_score=0.0,
+            archetype_match_source="none",
+        )
+        deploy = K8sResource(
+            api_version="apps/v1",
+            kind="Deployment",
+            name="app",
+            namespace="default",
+            replicas=1,
+            source_file="app.yaml",
+            containers=[container],
+            telemetry=[],
+            raw={},
+        )
+        from k8s_observability_agent.analyzer import build_platform
+
+        platform = build_platform([deploy], ["app.yaml"], [])
+        result = execute_tool(platform, "get_workload_insights", {})
+        assert "NOT READY" in result
+        assert "no metrics exposure detected" in result
+
+    def test_platform_summary_includes_readiness(self) -> None:
+        """Platform summary should include observability readiness counts."""
+        from k8s_observability_agent.models import ContainerSpec
+
+        container = ContainerSpec(
+            name="app",
+            image="redis:7",
+            ports=[6379],
+            archetype="cache",
+            archetype_display="Redis",
+            archetype_confidence="high",
+            archetype_score=0.9,
+            archetype_match_source="image",
+        )
+        deploy = K8sResource(
+            api_version="apps/v1",
+            kind="Deployment",
+            name="cache",
+            namespace="default",
+            replicas=1,
+            source_file="cache.yaml",
+            containers=[container],
+            telemetry=[],
+            raw={},
+        )
+        from k8s_observability_agent.analyzer import build_platform
+
+        platform = build_platform([deploy], ["cache.yaml"], [])
+        result = execute_tool(platform, "get_platform_summary", {})
+        assert "Observability Readiness:" in result
+        assert "NOT READY:" in result

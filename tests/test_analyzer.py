@@ -4,7 +4,9 @@ from k8s_observability_agent.analyzer import build_platform, build_relationships
 from k8s_observability_agent.models import K8sResource
 
 
-def _make_deployment(name: str, namespace: str = "default", labels: dict | None = None) -> K8sResource:
+def _make_deployment(
+    name: str, namespace: str = "default", labels: dict | None = None
+) -> K8sResource:
     labels = labels or {}
     return K8sResource(
         api_version="apps/v1",
@@ -25,7 +27,9 @@ def _make_deployment(name: str, namespace: str = "default", labels: dict | None 
     )
 
 
-def _make_service(name: str, namespace: str = "default", selector: dict | None = None) -> K8sResource:
+def _make_service(
+    name: str, namespace: str = "default", selector: dict | None = None
+) -> K8sResource:
     selector = selector or {}
     return K8sResource(
         api_version="v1",

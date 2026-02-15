@@ -30,7 +30,9 @@ def build_relationships(resources: list[K8sResource]) -> list[ServiceRelationshi
         if not svc.selector:
             continue
         for wl in workloads:
-            pod_labels = wl.raw.get("spec", {}).get("template", {}).get("metadata", {}).get("labels", {})
+            pod_labels = (
+                wl.raw.get("spec", {}).get("template", {}).get("metadata", {}).get("labels", {})
+            )
             if _labels_match(svc.selector, pod_labels):
                 rels.append(
                     ServiceRelationship(
@@ -45,10 +47,7 @@ def build_relationships(resources: list[K8sResource]) -> list[ServiceRelationshi
         for rule in ing.ingress_rules:
             for path_entry in rule.get("http", {}).get("paths", []):
                 backend = path_entry.get("backend", {})
-                svc_name = (
-                    backend.get("service", {}).get("name")
-                    or backend.get("serviceName")
-                )
+                svc_name = backend.get("service", {}).get("name") or backend.get("serviceName")
                 if svc_name:
                     # find matching service in same namespace
                     for svc in services:
@@ -68,7 +67,11 @@ def build_relationships(resources: list[K8sResource]) -> list[ServiceRelationshi
         target_kind = target_ref.get("kind")
         if target_name and target_kind:
             for wl in workloads:
-                if wl.name == target_name and wl.kind == target_kind and wl.namespace == hpa.namespace:
+                if (
+                    wl.name == target_name
+                    and wl.kind == target_kind
+                    and wl.namespace == hpa.namespace
+                ):
                     rels.append(
                         ServiceRelationship(
                             source=hpa.qualified_name,
@@ -147,7 +150,9 @@ def platform_report(platform: Platform) -> str:
                     arch_str += f" ({c.archetype_display})"
                 if c.archetype_confidence != "low":
                     arch_str += f" [{c.archetype_confidence}]"
-                lines.append(f"    container: {c.name}  image={c.image}  probes=[{probe_str}]{arch_str}")
+                lines.append(
+                    f"    container: {c.name}  image={c.image}  probes=[{probe_str}]{arch_str}"
+                )
             if wl.telemetry:
                 lines.append(f"    telemetry: {', '.join(wl.telemetry)}")
             else:

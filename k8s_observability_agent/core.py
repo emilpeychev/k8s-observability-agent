@@ -135,7 +135,7 @@ def run_agent(platform: Platform, settings: Settings) -> ObservabilityPlan:
                 )
                 break  # success
             except anthropic.RateLimitError as exc:
-                wait = 2 ** attempt
+                wait = 2**attempt
                 console.print(
                     f"  [yellow]Rate-limited (attempt {attempt}/{MAX_RETRIES}), "
                     f"retrying in {wait}s …[/yellow]"
@@ -146,7 +146,7 @@ def run_agent(platform: Platform, settings: Settings) -> ObservabilityPlan:
                 console.print(f"\n[red]Connection error: {exc}[/red]")
                 logger.error("API connection error: %s", exc)
                 if attempt < MAX_RETRIES:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2**attempt)
                     continue
                 console.print(
                     "[red]Could not reach the Anthropic API. "
@@ -186,23 +186,29 @@ def run_agent(platform: Platform, settings: Settings) -> ObservabilityPlan:
                     console.print(f"  [blue]Agent:[/blue] {preview}")
 
             elif block.type == "tool_use":
-                assistant_content.append({
-                    "type": "tool_use",
-                    "id": block.id,
-                    "name": block.name,
-                    "input": block.input,
-                })
+                assistant_content.append(
+                    {
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    }
+                )
 
-                console.print(f"  [yellow]Tool call:[/yellow] {block.name}({json.dumps(block.input, default=str)[:120]})")
+                console.print(
+                    f"  [yellow]Tool call:[/yellow] {block.name}({json.dumps(block.input, default=str)[:120]})"
+                )
 
                 # Execute the tool
                 result_str = execute_tool(platform, block.name, block.input)
 
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result_str,
-                })
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result_str,
+                    }
+                )
 
                 # Check if this was the final plan generation
                 if block.name == "generate_observability_plan":
@@ -226,7 +232,9 @@ def run_agent(platform: Platform, settings: Settings) -> ObservabilityPlan:
         if response.stop_reason == "end_turn" and not tool_results:
             # Agent ended without producing a plan via the tool — try to
             # extract any textual advice as recommendations.
-            console.print("\n[yellow]Agent finished without calling generate_observability_plan.[/yellow]")
+            console.print(
+                "\n[yellow]Agent finished without calling generate_observability_plan.[/yellow]"
+            )
             if plan is None:
                 plan = ObservabilityPlan(
                     platform_summary="Agent did not produce a structured plan.",

@@ -229,9 +229,13 @@ def _parse_resource(doc: dict, source_file: str) -> K8sResource:
         # Pod template may be nested under spec.template.spec or spec.jobTemplate.template.spec
         pod_spec = spec.get("template", {}).get("spec", {})
         if not pod_spec and res.kind == "CronJob":
-            pod_spec = spec.get("jobTemplate", {}).get("spec", {}).get("template", {}).get("spec", {})
+            pod_spec = (
+                spec.get("jobTemplate", {}).get("spec", {}).get("template", {}).get("spec", {})
+            )
         pod_labels = spec.get("template", {}).get("metadata", {}).get("labels", {})
-        res.containers = [_parse_container(c, labels=pod_labels) for c in pod_spec.get("containers", [])]
+        res.containers = [
+            _parse_container(c, labels=pod_labels) for c in pod_spec.get("containers", [])
+        ]
         match_labels = spec.get("selector", {}).get("matchLabels", {})
         res.selector = match_labels
 

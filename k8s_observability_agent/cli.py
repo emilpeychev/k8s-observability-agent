@@ -41,9 +41,13 @@ def main() -> None:
 
 @main.command()
 @click.argument("repo", default=".")
-@click.option("--github", "github_url", default="", help="Clone from a GitHub URL instead of a local path.")
+@click.option(
+    "--github", "github_url", default="", help="Clone from a GitHub URL instead of a local path."
+)
 @click.option("--branch", default="main", help="Git branch to checkout (used with --github).")
-@click.option("--output", "-o", "output_dir", default="observability-output", help="Output directory.")
+@click.option(
+    "--output", "-o", "output_dir", default="observability-output", help="Output directory."
+)
 @click.option("--model", default="claude-sonnet-4-20250514", help="Anthropic model to use.")
 @click.option("--api-key", default="", help="Anthropic API key (or set ANTHROPIC_API_KEY env var).")
 @click.option("--max-turns", default=30, type=int, help="Maximum agent reasoning turns.")
@@ -95,7 +99,9 @@ def analyze(
         console.print("[yellow]No Kubernetes resources found in the repository.[/yellow]")
         sys.exit(0)
 
-    console.print(f"  Found [green]{len(resources)}[/green] resources in {len(manifest_files)} manifest files.")
+    console.print(
+        f"  Found [green]{len(resources)}[/green] resources in {len(manifest_files)} manifest files."
+    )
 
     # ── Step 2: Analyse ───────────────────────────────────────────────────
     console.print(Panel("Step 2 / 3  —  Running AI analysis", style="bold cyan"))
@@ -118,7 +124,9 @@ def analyze(
 
 @main.command()
 @click.argument("repo", default=".")
-@click.option("--github", "github_url", default="", help="Clone from a GitHub URL instead of a local path.")
+@click.option(
+    "--github", "github_url", default="", help="Clone from a GitHub URL instead of a local path."
+)
 @click.option("--branch", default="main", help="Git branch to checkout.")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output.")
 def scan(

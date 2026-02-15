@@ -32,7 +32,7 @@ def _sample_plan() -> ObservabilityPlan:
             AlertRule(
                 alert_name="HighErrorRate",
                 severity="critical",
-                expr='rate(http_errors_total[5m]) / rate(http_requests_total[5m]) > 0.05',
+                expr="rate(http_errors_total[5m]) / rate(http_requests_total[5m]) > 0.05",
                 for_duration="5m",
                 summary="High error rate on web",
                 description="Error rate exceeds 5%",
@@ -53,7 +53,7 @@ def _sample_plan() -> ObservabilityPlan:
                     DashboardPanel(
                         title="Error Rate",
                         panel_type="timeseries",
-                        queries=['rate(http_errors_total[5m]) / rate(http_requests_total[5m])'],
+                        queries=["rate(http_errors_total[5m]) / rate(http_requests_total[5m])"],
                     ),
                 ],
                 tags=["web", "k8s"],

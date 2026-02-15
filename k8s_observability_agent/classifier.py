@@ -358,18 +358,55 @@ _MONGO_PROFILE = _register(
         exporter="mongodb_exporter",
         exporter_port=9216,
         golden_metrics=[
-            MetricSignal("mongodb_connections_current", "mongodb_ss_connections{conn_type='current'}", "Current connections", requires="exporter"),
-            MetricSignal("mongodb_opcounters", "rate(mongodb_ss_opcounters_total[5m])", "Operation counters (insert/query/update/delete)", requires="exporter"),
-            MetricSignal("mongodb_repl_lag", "mongodb_mongod_replset_member_optime_date - mongodb_mongod_replset_member_optime_date{state='PRIMARY'}", "Replication lag", requires="exporter,replicas>1"),
-            MetricSignal("mongodb_wiredtiger_cache", "mongodb_ss_wt_cache_bytes_currently_in_the_cache", "WiredTiger cache usage", requires="exporter"),
+            MetricSignal(
+                "mongodb_connections_current",
+                "mongodb_ss_connections{conn_type='current'}",
+                "Current connections",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "mongodb_opcounters",
+                "rate(mongodb_ss_opcounters_total[5m])",
+                "Operation counters (insert/query/update/delete)",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "mongodb_repl_lag",
+                "mongodb_mongod_replset_member_optime_date - mongodb_mongod_replset_member_optime_date{state='PRIMARY'}",
+                "Replication lag",
+                requires="exporter,replicas>1",
+            ),
+            MetricSignal(
+                "mongodb_wiredtiger_cache",
+                "mongodb_ss_wt_cache_bytes_currently_in_the_cache",
+                "WiredTiger cache usage",
+                requires="exporter",
+            ),
         ],
         alerts=[
-            AlertSignal("MongoDBReplicationLag", "mongodb_mongod_replset_member_replication_lag > 10", severity="critical", for_duration="5m", summary="MongoDB replica set member lagging behind primary", requires="exporter,replicas>1"),
-            AlertSignal("MongoDBConnectionsHigh", "mongodb_ss_connections{conn_type='current'} > 5000", severity="warning", for_duration="5m", summary="MongoDB connection count high", requires="exporter"),
+            AlertSignal(
+                "MongoDBReplicationLag",
+                "mongodb_mongod_replset_member_replication_lag > 10",
+                severity="critical",
+                for_duration="5m",
+                summary="MongoDB replica set member lagging behind primary",
+                requires="exporter,replicas>1",
+            ),
+            AlertSignal(
+                "MongoDBConnectionsHigh",
+                "mongodb_ss_connections{conn_type='current'} > 5000",
+                severity="warning",
+                for_duration="5m",
+                summary="MongoDB connection count high",
+                requires="exporter",
+            ),
         ],
         dashboard_tags=["mongodb", "database"],
         health_requirements=["Deploy mongodb_exporter to expose mongodb_* metrics"],
-        recommendations=["Use a StatefulSet for replica set members", "Monitor oplog window size for replication health"],
+        recommendations=[
+            "Use a StatefulSet for replica set members",
+            "Monitor oplog window size for replication health",
+        ],
     )
 )
 
@@ -383,20 +420,72 @@ _ES_PROFILE = _register(
         exporter="elasticsearch_exporter",
         exporter_port=9114,
         golden_metrics=[
-            MetricSignal("es_cluster_health", "elasticsearch_cluster_health_status", "Cluster health (green/yellow/red)", requires="exporter"),
-            MetricSignal("es_jvm_heap_used", "elasticsearch_jvm_memory_used_bytes{area='heap'}", "JVM heap usage", requires="exporter"),
-            MetricSignal("es_indexing_rate", "rate(elasticsearch_indices_indexing_index_total[5m])", "Document indexing rate", requires="exporter"),
-            MetricSignal("es_search_latency", "elasticsearch_indices_search_fetch_time_seconds / elasticsearch_indices_search_fetch_total", "Average search latency", requires="exporter"),
-            MetricSignal("es_unassigned_shards", "elasticsearch_cluster_health_unassigned_shards", "Unassigned shard count", requires="exporter"),
+            MetricSignal(
+                "es_cluster_health",
+                "elasticsearch_cluster_health_status",
+                "Cluster health (green/yellow/red)",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "es_jvm_heap_used",
+                "elasticsearch_jvm_memory_used_bytes{area='heap'}",
+                "JVM heap usage",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "es_indexing_rate",
+                "rate(elasticsearch_indices_indexing_index_total[5m])",
+                "Document indexing rate",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "es_search_latency",
+                "elasticsearch_indices_search_fetch_time_seconds / elasticsearch_indices_search_fetch_total",
+                "Average search latency",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "es_unassigned_shards",
+                "elasticsearch_cluster_health_unassigned_shards",
+                "Unassigned shard count",
+                requires="exporter",
+            ),
         ],
         alerts=[
-            AlertSignal("ElasticsearchClusterRed", 'elasticsearch_cluster_health_status{color="red"} == 1', severity="critical", for_duration="1m", summary="Elasticsearch cluster health is RED", requires="exporter"),
-            AlertSignal("ElasticsearchClusterYellow", 'elasticsearch_cluster_health_status{color="yellow"} == 1', severity="warning", for_duration="10m", summary="Elasticsearch cluster health is YELLOW", requires="exporter"),
-            AlertSignal("ElasticsearchJVMHeapHigh", "elasticsearch_jvm_memory_used_bytes{area='heap'} / elasticsearch_jvm_memory_max_bytes{area='heap'} > 0.9", severity="warning", for_duration="5m", summary="Elasticsearch JVM heap usage above 90%", requires="exporter"),
+            AlertSignal(
+                "ElasticsearchClusterRed",
+                'elasticsearch_cluster_health_status{color="red"} == 1',
+                severity="critical",
+                for_duration="1m",
+                summary="Elasticsearch cluster health is RED",
+                requires="exporter",
+            ),
+            AlertSignal(
+                "ElasticsearchClusterYellow",
+                'elasticsearch_cluster_health_status{color="yellow"} == 1',
+                severity="warning",
+                for_duration="10m",
+                summary="Elasticsearch cluster health is YELLOW",
+                requires="exporter",
+            ),
+            AlertSignal(
+                "ElasticsearchJVMHeapHigh",
+                "elasticsearch_jvm_memory_used_bytes{area='heap'} / elasticsearch_jvm_memory_max_bytes{area='heap'} > 0.9",
+                severity="warning",
+                for_duration="5m",
+                summary="Elasticsearch JVM heap usage above 90%",
+                requires="exporter",
+            ),
         ],
         dashboard_tags=["elasticsearch", "search"],
-        health_requirements=["Ensure /_cluster/health endpoint is accessible", "elasticsearch_exporter sidecar needed for prometheus metrics"],
-        recommendations=["Set JVM heap to 50% of available memory (max 31 GB)", "Monitor unassigned shards — they indicate capacity or config issues"],
+        health_requirements=[
+            "Ensure /_cluster/health endpoint is accessible",
+            "elasticsearch_exporter sidecar needed for prometheus metrics",
+        ],
+        recommendations=[
+            "Set JVM heap to 50% of available memory (max 31 GB)",
+            "Monitor unassigned shards — they indicate capacity or config issues",
+        ],
     )
 )
 
@@ -410,19 +499,66 @@ _KAFKA_PROFILE = _register(
         exporter="kafka_exporter / JMX exporter",
         exporter_port=9308,
         golden_metrics=[
-            MetricSignal("kafka_consumer_lag", "kafka_consumergroup_lag", "Consumer group lag (messages behind)", requires="exporter"),
-            MetricSignal("kafka_under_replicated_partitions", "kafka_server_replicamanager_underreplicatedpartitions", "Under-replicated partitions", requires="exporter"),
-            MetricSignal("kafka_messages_in_per_sec", "rate(kafka_server_brokertopicmetrics_messagesin_total[5m])", "Message ingest rate", requires="exporter"),
-            MetricSignal("kafka_isr_shrinks", "rate(kafka_server_replicamanager_isrshrinks_total[5m])", "ISR shrink rate — indicates broker instability", requires="exporter"),
+            MetricSignal(
+                "kafka_consumer_lag",
+                "kafka_consumergroup_lag",
+                "Consumer group lag (messages behind)",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "kafka_under_replicated_partitions",
+                "kafka_server_replicamanager_underreplicatedpartitions",
+                "Under-replicated partitions",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "kafka_messages_in_per_sec",
+                "rate(kafka_server_brokertopicmetrics_messagesin_total[5m])",
+                "Message ingest rate",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "kafka_isr_shrinks",
+                "rate(kafka_server_replicamanager_isrshrinks_total[5m])",
+                "ISR shrink rate — indicates broker instability",
+                requires="exporter",
+            ),
         ],
         alerts=[
-            AlertSignal("KafkaConsumerLagHigh", "kafka_consumergroup_lag > 10000", severity="warning", for_duration="10m", summary="Kafka consumer group lag exceeds 10k messages", requires="exporter"),
-            AlertSignal("KafkaUnderReplicated", "kafka_server_replicamanager_underreplicatedpartitions > 0", severity="critical", for_duration="5m", summary="Kafka has under-replicated partitions — risk of data loss", requires="exporter,replicas>1"),
-            AlertSignal("KafkaISRShrinking", "rate(kafka_server_replicamanager_isrshrinks_total[5m]) > 0", severity="warning", for_duration="5m", summary="Kafka ISR is shrinking — broker may be unhealthy", requires="exporter,replicas>1"),
+            AlertSignal(
+                "KafkaConsumerLagHigh",
+                "kafka_consumergroup_lag > 10000",
+                severity="warning",
+                for_duration="10m",
+                summary="Kafka consumer group lag exceeds 10k messages",
+                requires="exporter",
+            ),
+            AlertSignal(
+                "KafkaUnderReplicated",
+                "kafka_server_replicamanager_underreplicatedpartitions > 0",
+                severity="critical",
+                for_duration="5m",
+                summary="Kafka has under-replicated partitions — risk of data loss",
+                requires="exporter,replicas>1",
+            ),
+            AlertSignal(
+                "KafkaISRShrinking",
+                "rate(kafka_server_replicamanager_isrshrinks_total[5m]) > 0",
+                severity="warning",
+                for_duration="5m",
+                summary="Kafka ISR is shrinking — broker may be unhealthy",
+                requires="exporter,replicas>1",
+            ),
         ],
         dashboard_tags=["kafka", "messaging"],
-        health_requirements=["Deploy kafka_exporter or enable JMX exporter for kafka_* metrics", "Monitor ZooKeeper (or KRaft controller) health separately"],
-        recommendations=["Set min.insync.replicas >= 2 for durability", "Monitor consumer lag per consumer group, not just globally"],
+        health_requirements=[
+            "Deploy kafka_exporter or enable JMX exporter for kafka_* metrics",
+            "Monitor ZooKeeper (or KRaft controller) health separately",
+        ],
+        recommendations=[
+            "Set min.insync.replicas >= 2 for durability",
+            "Monitor consumer lag per consumer group, not just globally",
+        ],
     )
 )
 
@@ -436,19 +572,54 @@ _RABBITMQ_PROFILE = _register(
         exporter="rabbitmq_prometheus (built-in)",
         exporter_port=15692,
         golden_metrics=[
-            MetricSignal("rabbitmq_queue_messages", "rabbitmq_queue_messages", "Messages ready + unacknowledged per queue"),
-            MetricSignal("rabbitmq_queue_consumers", "rabbitmq_queue_consumers", "Consumer count per queue"),
-            MetricSignal("rabbitmq_node_mem_used", "rabbitmq_process_resident_memory_bytes", "Node resident memory"),
-            MetricSignal("rabbitmq_publish_rate", "rate(rabbitmq_channel_messages_published_total[5m])", "Message publish rate"),
+            MetricSignal(
+                "rabbitmq_queue_messages",
+                "rabbitmq_queue_messages",
+                "Messages ready + unacknowledged per queue",
+            ),
+            MetricSignal(
+                "rabbitmq_queue_consumers", "rabbitmq_queue_consumers", "Consumer count per queue"
+            ),
+            MetricSignal(
+                "rabbitmq_node_mem_used",
+                "rabbitmq_process_resident_memory_bytes",
+                "Node resident memory",
+            ),
+            MetricSignal(
+                "rabbitmq_publish_rate",
+                "rate(rabbitmq_channel_messages_published_total[5m])",
+                "Message publish rate",
+            ),
         ],
         alerts=[
-            AlertSignal("RabbitMQQueueBacklog", "rabbitmq_queue_messages > 10000", severity="warning", for_duration="10m", summary="RabbitMQ queue depth exceeds 10k messages"),
-            AlertSignal("RabbitMQNoConsumers", "rabbitmq_queue_consumers == 0 and rabbitmq_queue_messages > 0", severity="critical", for_duration="5m", summary="RabbitMQ queue has messages but no consumers"),
-            AlertSignal("RabbitMQHighMemory", "rabbitmq_process_resident_memory_bytes / rabbitmq_node_mem_limit > 0.8", severity="warning", for_duration="5m", summary="RabbitMQ memory usage above 80% of limit"),
+            AlertSignal(
+                "RabbitMQQueueBacklog",
+                "rabbitmq_queue_messages > 10000",
+                severity="warning",
+                for_duration="10m",
+                summary="RabbitMQ queue depth exceeds 10k messages",
+            ),
+            AlertSignal(
+                "RabbitMQNoConsumers",
+                "rabbitmq_queue_consumers == 0 and rabbitmq_queue_messages > 0",
+                severity="critical",
+                for_duration="5m",
+                summary="RabbitMQ queue has messages but no consumers",
+            ),
+            AlertSignal(
+                "RabbitMQHighMemory",
+                "rabbitmq_process_resident_memory_bytes / rabbitmq_node_mem_limit > 0.8",
+                severity="warning",
+                for_duration="5m",
+                summary="RabbitMQ memory usage above 80% of limit",
+            ),
         ],
         dashboard_tags=["rabbitmq", "messaging"],
         health_requirements=["Enable the rabbitmq_prometheus plugin (ships with RabbitMQ 3.8+)"],
-        recommendations=["Set per-queue message TTL and max-length policies", "Monitor individual queue depth, not just node-level aggregates"],
+        recommendations=[
+            "Set per-queue message TTL and max-length policies",
+            "Monitor individual queue depth, not just node-level aggregates",
+        ],
     )
 )
 
@@ -462,12 +633,34 @@ _NATS_PROFILE = _register(
         exporter="prometheus-nats-exporter",
         exporter_port=7777,
         golden_metrics=[
-            MetricSignal("nats_connections", "nats_varz_connections", "Active client connections", requires="exporter"),
-            MetricSignal("nats_messages_in", "rate(nats_varz_in_msgs[5m])", "Inbound message rate", requires="exporter"),
-            MetricSignal("nats_slow_consumers", "nats_varz_slow_consumers", "Slow consumer count", requires="exporter"),
+            MetricSignal(
+                "nats_connections",
+                "nats_varz_connections",
+                "Active client connections",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "nats_messages_in",
+                "rate(nats_varz_in_msgs[5m])",
+                "Inbound message rate",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "nats_slow_consumers",
+                "nats_varz_slow_consumers",
+                "Slow consumer count",
+                requires="exporter",
+            ),
         ],
         alerts=[
-            AlertSignal("NATSSlowConsumers", "nats_varz_slow_consumers > 0", severity="warning", for_duration="5m", summary="NATS has slow consumers — messages may be dropped", requires="exporter"),
+            AlertSignal(
+                "NATSSlowConsumers",
+                "nats_varz_slow_consumers > 0",
+                severity="warning",
+                for_duration="5m",
+                summary="NATS has slow consumers — messages may be dropped",
+                requires="exporter",
+            ),
         ],
         dashboard_tags=["nats", "messaging"],
         health_requirements=["Deploy prometheus-nats-exporter sidecar"],
@@ -485,18 +678,58 @@ _NGINX_PROFILE = _register(
         exporter="nginx-prometheus-exporter (stub_status) or nginx-vts-exporter",
         exporter_port=9113,
         golden_metrics=[
-            MetricSignal("nginx_active_connections", "nginx_connections_active", "Currently active client connections", requires="exporter"),
-            MetricSignal("nginx_request_rate", "rate(nginx_http_requests_total[5m])", "HTTP request throughput", requires="exporter"),
-            MetricSignal("nginx_5xx_rate", 'rate(nginx_http_requests_total{status=~"5.."}[5m])', "5xx error rate", requires="exporter"),
-            MetricSignal("nginx_upstream_response_time", 'nginx_upstream_response_time_seconds{quantile="0.95"}', "95th percentile upstream response time", requires="exporter"),
+            MetricSignal(
+                "nginx_active_connections",
+                "nginx_connections_active",
+                "Currently active client connections",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "nginx_request_rate",
+                "rate(nginx_http_requests_total[5m])",
+                "HTTP request throughput",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "nginx_5xx_rate",
+                'rate(nginx_http_requests_total{status=~"5.."}[5m])',
+                "5xx error rate",
+                requires="exporter",
+            ),
+            MetricSignal(
+                "nginx_upstream_response_time",
+                'nginx_upstream_response_time_seconds{quantile="0.95"}',
+                "95th percentile upstream response time",
+                requires="exporter",
+            ),
         ],
         alerts=[
-            AlertSignal("NginxHighErrorRate", 'rate(nginx_http_requests_total{status=~"5.."}[5m]) / rate(nginx_http_requests_total[5m]) > 0.05', severity="critical", for_duration="5m", summary="NGINX 5xx error rate exceeds 5%", requires="exporter"),
-            AlertSignal("NginxConnectionsNearLimit", "nginx_connections_active > 900", severity="warning", for_duration="5m", summary="NGINX active connections approaching worker_connections limit", requires="exporter"),
+            AlertSignal(
+                "NginxHighErrorRate",
+                'rate(nginx_http_requests_total{status=~"5.."}[5m]) / rate(nginx_http_requests_total[5m]) > 0.05',
+                severity="critical",
+                for_duration="5m",
+                summary="NGINX 5xx error rate exceeds 5%",
+                requires="exporter",
+            ),
+            AlertSignal(
+                "NginxConnectionsNearLimit",
+                "nginx_connections_active > 900",
+                severity="warning",
+                for_duration="5m",
+                summary="NGINX active connections approaching worker_connections limit",
+                requires="exporter",
+            ),
         ],
         dashboard_tags=["nginx", "web"],
-        health_requirements=["Enable stub_status or the VTS module for metrics exposure", "Deploy nginx-prometheus-exporter sidecar"],
-        recommendations=["Add upstream health checks in nginx.conf", "Set worker_connections based on expected concurrent load"],
+        health_requirements=[
+            "Enable stub_status or the VTS module for metrics exposure",
+            "Deploy nginx-prometheus-exporter sidecar",
+        ],
+        recommendations=[
+            "Add upstream health checks in nginx.conf",
+            "Set worker_connections based on expected concurrent load",
+        ],
     )
 )
 
@@ -510,18 +743,49 @@ _ENVOY_PROFILE = _register(
         exporter="built-in (/stats/prometheus)",
         exporter_port=9901,
         golden_metrics=[
-            MetricSignal("envoy_request_rate", "rate(envoy_http_downstream_rq_total[5m])", "Downstream request rate"),
-            MetricSignal("envoy_5xx_rate", 'rate(envoy_http_downstream_rq_xx{envoy_response_code_class="5"}[5m])', "5xx response rate"),
-            MetricSignal("envoy_p99_latency", 'histogram_quantile(0.99, rate(envoy_http_downstream_rq_time_bucket[5m]))', "p99 request latency"),
-            MetricSignal("envoy_cx_active", "envoy_http_downstream_cx_active", "Active downstream connections"),
+            MetricSignal(
+                "envoy_request_rate",
+                "rate(envoy_http_downstream_rq_total[5m])",
+                "Downstream request rate",
+            ),
+            MetricSignal(
+                "envoy_5xx_rate",
+                'rate(envoy_http_downstream_rq_xx{envoy_response_code_class="5"}[5m])',
+                "5xx response rate",
+            ),
+            MetricSignal(
+                "envoy_p99_latency",
+                "histogram_quantile(0.99, rate(envoy_http_downstream_rq_time_bucket[5m]))",
+                "p99 request latency",
+            ),
+            MetricSignal(
+                "envoy_cx_active",
+                "envoy_http_downstream_cx_active",
+                "Active downstream connections",
+            ),
         ],
         alerts=[
-            AlertSignal("EnvoyHighLatency", 'histogram_quantile(0.99, rate(envoy_http_downstream_rq_time_bucket[5m])) > 1', severity="warning", for_duration="5m", summary="Envoy p99 latency exceeds 1 second"),
-            AlertSignal("EnvoyCircuitBreakerTripped", "envoy_cluster_circuit_breakers_default_cx_open > 0", severity="critical", for_duration="1m", summary="Envoy circuit breaker is open — upstream is unhealthy"),
+            AlertSignal(
+                "EnvoyHighLatency",
+                "histogram_quantile(0.99, rate(envoy_http_downstream_rq_time_bucket[5m])) > 1",
+                severity="warning",
+                for_duration="5m",
+                summary="Envoy p99 latency exceeds 1 second",
+            ),
+            AlertSignal(
+                "EnvoyCircuitBreakerTripped",
+                "envoy_cluster_circuit_breakers_default_cx_open > 0",
+                severity="critical",
+                for_duration="1m",
+                summary="Envoy circuit breaker is open — upstream is unhealthy",
+            ),
         ],
         dashboard_tags=["envoy", "proxy", "service-mesh"],
         health_requirements=["Ensure /stats/prometheus endpoint is not blocked by network policy"],
-        recommendations=["Configure circuit breakers per upstream cluster", "Monitor retry budgets to avoid retry storms"],
+        recommendations=[
+            "Configure circuit breakers per upstream cluster",
+            "Monitor retry budgets to avoid retry storms",
+        ],
     )
 )
 
@@ -536,12 +800,30 @@ _HAPROXY_PROFILE = _register(
         exporter_port=8405,
         golden_metrics=[
             MetricSignal("haproxy_backend_up", "haproxy_backend_up", "Backend server health"),
-            MetricSignal("haproxy_session_rate", "rate(haproxy_frontend_sessions_total[5m])", "Frontend session rate"),
-            MetricSignal("haproxy_queue_current", "haproxy_backend_current_queue", "Backend queue depth"),
+            MetricSignal(
+                "haproxy_session_rate",
+                "rate(haproxy_frontend_sessions_total[5m])",
+                "Frontend session rate",
+            ),
+            MetricSignal(
+                "haproxy_queue_current", "haproxy_backend_current_queue", "Backend queue depth"
+            ),
         ],
         alerts=[
-            AlertSignal("HAProxyBackendDown", "haproxy_backend_up == 0", severity="critical", for_duration="1m", summary="HAProxy backend is completely down"),
-            AlertSignal("HAProxyQueueBacklog", "haproxy_backend_current_queue > 100", severity="warning", for_duration="5m", summary="HAProxy backend queue building up"),
+            AlertSignal(
+                "HAProxyBackendDown",
+                "haproxy_backend_up == 0",
+                severity="critical",
+                for_duration="1m",
+                summary="HAProxy backend is completely down",
+            ),
+            AlertSignal(
+                "HAProxyQueueBacklog",
+                "haproxy_backend_current_queue > 100",
+                severity="warning",
+                for_duration="5m",
+                summary="HAProxy backend queue building up",
+            ),
         ],
         dashboard_tags=["haproxy", "loadbalancer"],
         health_requirements=["Enable the Prometheus endpoint in haproxy.cfg"],
@@ -559,17 +841,44 @@ _PROM_PROFILE = _register(
         exporter="built-in (/metrics)",
         exporter_port=9090,
         golden_metrics=[
-            MetricSignal("prometheus_tsdb_head_series", "prometheus_tsdb_head_series", "Active time series count"),
-            MetricSignal("prometheus_target_scrape_failures", "rate(prometheus_target_scrapes_failed_total[5m])", "Scrape failure rate"),
-            MetricSignal("prometheus_rule_eval_duration", "prometheus_rule_evaluation_duration_seconds", "Rule evaluation latency"),
+            MetricSignal(
+                "prometheus_tsdb_head_series",
+                "prometheus_tsdb_head_series",
+                "Active time series count",
+            ),
+            MetricSignal(
+                "prometheus_target_scrape_failures",
+                "rate(prometheus_target_scrapes_failed_total[5m])",
+                "Scrape failure rate",
+            ),
+            MetricSignal(
+                "prometheus_rule_eval_duration",
+                "prometheus_rule_evaluation_duration_seconds",
+                "Rule evaluation latency",
+            ),
         ],
         alerts=[
-            AlertSignal("PrometheusTargetDown", "up == 0", severity="critical", for_duration="5m", summary="Prometheus scrape target is down"),
-            AlertSignal("PrometheusTSDBCompactionFailing", "rate(prometheus_tsdb_compactions_failed_total[5m]) > 0", severity="warning", for_duration="15m", summary="Prometheus TSDB compaction failures"),
+            AlertSignal(
+                "PrometheusTargetDown",
+                "up == 0",
+                severity="critical",
+                for_duration="5m",
+                summary="Prometheus scrape target is down",
+            ),
+            AlertSignal(
+                "PrometheusTSDBCompactionFailing",
+                "rate(prometheus_tsdb_compactions_failed_total[5m]) > 0",
+                severity="warning",
+                for_duration="15m",
+                summary="Prometheus TSDB compaction failures",
+            ),
         ],
         dashboard_tags=["prometheus", "monitoring"],
         health_requirements=["Prometheus exposes its own /metrics endpoint by default"],
-        recommendations=["Monitor cardinality — high series counts cause memory issues", "Set --storage.tsdb.retention.size to prevent disk exhaustion"],
+        recommendations=[
+            "Monitor cardinality — high series counts cause memory issues",
+            "Set --storage.tsdb.retention.size to prevent disk exhaustion",
+        ],
     )
 )
 
@@ -583,11 +892,25 @@ _GRAFANA_PROFILE = _register(
         exporter="built-in (/metrics)",
         exporter_port=3000,
         golden_metrics=[
-            MetricSignal("grafana_http_request_duration", 'histogram_quantile(0.95, rate(grafana_http_request_duration_seconds_bucket[5m]))', "p95 API latency"),
-            MetricSignal("grafana_datasource_errors", "rate(grafana_datasource_request_total{status='error'}[5m])", "Datasource error rate"),
+            MetricSignal(
+                "grafana_http_request_duration",
+                "histogram_quantile(0.95, rate(grafana_http_request_duration_seconds_bucket[5m]))",
+                "p95 API latency",
+            ),
+            MetricSignal(
+                "grafana_datasource_errors",
+                "rate(grafana_datasource_request_total{status='error'}[5m])",
+                "Datasource error rate",
+            ),
         ],
         alerts=[
-            AlertSignal("GrafanaDatasourceErrors", "rate(grafana_datasource_request_total{status='error'}[5m]) > 0.5", severity="warning", for_duration="5m", summary="Grafana datasource errors elevated"),
+            AlertSignal(
+                "GrafanaDatasourceErrors",
+                "rate(grafana_datasource_request_total{status='error'}[5m]) > 0.5",
+                severity="warning",
+                for_duration="5m",
+                summary="Grafana datasource errors elevated",
+            ),
         ],
         dashboard_tags=["grafana", "monitoring"],
         health_requirements=["Enable built-in Prometheus metrics in grafana.ini"],
@@ -605,17 +928,44 @@ _FLUENTD_PROFILE = _register(
         exporter="built-in (in_prometheus plugin)",
         exporter_port=24231,
         golden_metrics=[
-            MetricSignal("fluentd_buffer_queue_length", "fluentd_output_status_buffer_queue_length", "Buffer queue depth"),
-            MetricSignal("fluentd_retry_count", "rate(fluentd_output_status_retry_count[5m])", "Output retry rate"),
-            MetricSignal("fluentd_emit_records", "rate(fluentd_output_status_emit_records[5m])", "Record emission rate"),
+            MetricSignal(
+                "fluentd_buffer_queue_length",
+                "fluentd_output_status_buffer_queue_length",
+                "Buffer queue depth",
+            ),
+            MetricSignal(
+                "fluentd_retry_count",
+                "rate(fluentd_output_status_retry_count[5m])",
+                "Output retry rate",
+            ),
+            MetricSignal(
+                "fluentd_emit_records",
+                "rate(fluentd_output_status_emit_records[5m])",
+                "Record emission rate",
+            ),
         ],
         alerts=[
-            AlertSignal("FluentdBufferFull", "fluentd_output_status_buffer_queue_length > 256", severity="critical", for_duration="5m", summary="Fluentd buffer queue is full — logs may be dropped"),
-            AlertSignal("FluentdRetryHigh", "rate(fluentd_output_status_retry_count[5m]) > 1", severity="warning", for_duration="10m", summary="Fluentd retry rate elevated — output destination may be unhealthy"),
+            AlertSignal(
+                "FluentdBufferFull",
+                "fluentd_output_status_buffer_queue_length > 256",
+                severity="critical",
+                for_duration="5m",
+                summary="Fluentd buffer queue is full — logs may be dropped",
+            ),
+            AlertSignal(
+                "FluentdRetryHigh",
+                "rate(fluentd_output_status_retry_count[5m]) > 1",
+                severity="warning",
+                for_duration="10m",
+                summary="Fluentd retry rate elevated — output destination may be unhealthy",
+            ),
         ],
         dashboard_tags=["fluentd", "logging"],
         health_requirements=["Enable the in_prometheus plugin for fluentd_* metrics"],
-        recommendations=["Size buffers based on peak log throughput", "Monitor retry count per output plugin"],
+        recommendations=[
+            "Size buffers based on peak log throughput",
+            "Monitor retry count per output plugin",
+        ],
     )
 )
 
@@ -627,28 +977,34 @@ _FLUENTD_PROFILE = _register(
 # available without needing cluster access.
 
 EXPORTER_IMAGE_PATTERNS: dict[str, re.Pattern[str]] = {
-    "postgres_exporter":      re.compile(r"postgres[_-]?exporter", re.I),
-    "mysqld_exporter":        re.compile(r"mysql[d]?[_-]?exporter", re.I),
-    "redis_exporter":         re.compile(r"redis[_-]?exporter", re.I),
-    "mongodb_exporter":       re.compile(r"mongo(db)?[_-]?exporter", re.I),
+    "postgres_exporter": re.compile(r"postgres[_-]?exporter", re.I),
+    "mysqld_exporter": re.compile(r"mysql[d]?[_-]?exporter", re.I),
+    "redis_exporter": re.compile(r"redis[_-]?exporter", re.I),
+    "mongodb_exporter": re.compile(r"mongo(db)?[_-]?exporter", re.I),
     "elasticsearch_exporter": re.compile(r"elasticsearch[_-]?exporter", re.I),
-    "kafka_exporter":         re.compile(r"kafka[_-]?exporter|jmx[_-]?exporter", re.I),
-    "nats_exporter":          re.compile(r"(prometheus[_-])?nats[_-]?exporter", re.I),
-    "nginx_exporter":         re.compile(r"nginx[_-]?(prometheus[_-])?exporter|nginx[_-]vts", re.I),
-    "haproxy_exporter":       re.compile(r"haproxy[_-]?exporter", re.I),
-    "node_exporter":          re.compile(r"node[_-]?exporter", re.I),
+    "kafka_exporter": re.compile(r"kafka[_-]?exporter|jmx[_-]?exporter", re.I),
+    "nats_exporter": re.compile(r"(prometheus[_-])?nats[_-]?exporter", re.I),
+    "nginx_exporter": re.compile(r"nginx[_-]?(prometheus[_-])?exporter|nginx[_-]vts", re.I),
+    "haproxy_exporter": re.compile(r"haproxy[_-]?exporter", re.I),
+    "node_exporter": re.compile(r"node[_-]?exporter", re.I),
 }
 
 # Profiles whose metrics are exposed by the main container itself (no sidecar needed).
 BUILTIN_METRICS_PROFILES: set[str] = {
-    "rabbitmq", "envoy", "haproxy", "prometheus", "grafana",
-    "fluentd_fluent_bit", "fluentd",
+    "rabbitmq",
+    "envoy",
+    "haproxy",
+    "prometheus",
+    "grafana",
+    "fluentd_fluent_bit",
+    "fluentd",
 }
 
 
 # ──────────────────────────── Image → Profile Mapping ─────────────────────────
 # This is the core matching logic. Order matters — first match wins.
 # Each entry is (regex_pattern, archetype_key, profile).
+
 
 @dataclass
 class _ImageRule:
@@ -665,12 +1021,16 @@ _IMAGE_RULES: list[_ImageRule] = [
     _ImageRule(re.compile(r"(^|/)mongo(db)?[:\-]", re.I), _MONGO_PROFILE),
     # Cache
     _ImageRule(re.compile(r"(^|/)(redis|valkey|keydb|dragonfly)[:\-]", re.I), _REDIS_PROFILE),
-    _ImageRule(re.compile(r"(^|/)memcache(d)?[:\-]", re.I), _REDIS_PROFILE),  # close enough archetype
+    _ImageRule(
+        re.compile(r"(^|/)memcache(d)?[:\-]", re.I), _REDIS_PROFILE
+    ),  # close enough archetype
     # Search
     _ImageRule(re.compile(r"(^|/)(elasticsearch|opensearch)[:\-]", re.I), _ES_PROFILE),
     _ImageRule(re.compile(r"(^|/)elastic/elasticsearch", re.I), _ES_PROFILE),
     # Message queues — each maps to the correct broker profile
-    _ImageRule(re.compile(r"(^|/)(kafka|confluentinc/cp-kafka|bitnami/kafka)[:\-]", re.I), _KAFKA_PROFILE),
+    _ImageRule(
+        re.compile(r"(^|/)(kafka|confluentinc/cp-kafka|bitnami/kafka)[:\-]", re.I), _KAFKA_PROFILE
+    ),
     _ImageRule(re.compile(r"(^|/)rabbitmq[:\-]", re.I), _RABBITMQ_PROFILE),
     _ImageRule(re.compile(r"(^|/)nats[:\-]", re.I), _NATS_PROFILE),
     # Web servers
@@ -686,7 +1046,9 @@ _IMAGE_RULES: list[_ImageRule] = [
     _ImageRule(re.compile(r"(^|/)prom(etheus)?/prometheus", re.I), _PROM_PROFILE),
     _ImageRule(re.compile(r"(^|/)grafana/grafana", re.I), _GRAFANA_PROFILE),
     # Logging
-    _ImageRule(re.compile(r"(^|/)(fluentd|fluent-bit|fluent/fluent-bit)[:\-]", re.I), _FLUENTD_PROFILE),
+    _ImageRule(
+        re.compile(r"(^|/)(fluentd|fluent-bit|fluent/fluent-bit)[:\-]", re.I), _FLUENTD_PROFILE
+    ),
 ]
 
 
@@ -698,7 +1060,7 @@ _PORT_HINTS: dict[int, tuple[str, str]] = {
     3306: ("database", "mysql"),
     27017: ("database", "mongodb"),
     6379: ("cache", "redis"),
-    11211: ("cache", "redis"),         # Memcached — closest profile
+    11211: ("cache", "redis"),  # Memcached — closest profile
     9200: ("search-engine", "elasticsearch"),
     9092: ("message-queue", "kafka"),
     5672: ("message-queue", "rabbitmq"),
@@ -807,7 +1169,7 @@ def classify_image(
             break  # only the first matching image rule fires
 
     # 2. Port heuristics
-    for port in (ports or []):
+    for port in ports or []:
         if port in _PORT_HINTS:
             archetype, profile_key = _PORT_HINTS[port]
             profile = _PROFILES.get(profile_key)
@@ -824,7 +1186,7 @@ def classify_image(
 
     # 3. Environment variable heuristics
     seen_env_profiles: set[str] = set()
-    for env in (env_vars or []):
+    for env in env_vars or []:
         if env in _ENV_HINTS:
             archetype, profile_key = _ENV_HINTS[env]
             if profile_key in seen_env_profiles:

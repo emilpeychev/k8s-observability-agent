@@ -41,7 +41,9 @@ class ContainerSpec(BaseModel):
     name: str
     image: str = ""
     ports: list[int] = Field(default_factory=list)
-    env_vars: list[str] = Field(default_factory=list, description="Environment variable names (values redacted)")
+    env_vars: list[str] = Field(
+        default_factory=list, description="Environment variable names (values redacted)"
+    )
     resource_requests: dict[str, str] = Field(default_factory=dict)
     resource_limits: dict[str, str] = Field(default_factory=dict)
     liveness_probe: bool = False
@@ -187,4 +189,6 @@ class ObservabilityPlan(BaseModel):
     metrics: list[MetricRecommendation] = Field(default_factory=list)
     alerts: list[AlertRule] = Field(default_factory=list)
     dashboards: list[DashboardSpec] = Field(default_factory=list)
-    recommendations: list[str] = Field(default_factory=list, description="Free-form textual recommendations")
+    recommendations: list[str] = Field(
+        default_factory=list, description="Free-form textual recommendations"
+    )

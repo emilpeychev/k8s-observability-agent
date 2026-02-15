@@ -256,6 +256,33 @@ def _get_platform_summary(platform: Platform) -> str:
     ]
     for kind, count in sorted(summary.items()):
         lines.append(f"  {kind}: {count}")
+
+    # Platform-wide observability readiness
+    workloads = platform.workloads
+    if workloads:
+        ready = 0
+        partial = 0
+        not_ready = 0
+        for wl in workloads:
+            has_exporter = any(
+                t.startswith("exporter:") or t == "builtin_metrics" for t in wl.telemetry
+            )
+            has_scrape = any(
+                t == "scrape_annotations" or t.startswith("metrics_port:") for t in wl.telemetry
+            )
+            if has_exporter and has_scrape:
+                ready += 1
+            elif has_exporter or has_scrape:
+                partial += 1
+            else:
+                not_ready += 1
+        total = len(workloads)
+        lines.append("")
+        lines.append("Observability Readiness:")
+        lines.append(f"  READY:     {ready}/{total} workloads (exporter + scrape path)")
+        lines.append(f"  PARTIAL:   {partial}/{total} workloads (exporter OR scrape, not both)")
+        lines.append(f"  NOT READY: {not_ready}/{total} workloads (no metrics exposure)")
+
     return "\n".join(lines)
 
 
@@ -264,23 +291,34 @@ def _check_health_gaps(platform: Platform) -> str:
     for wl in platform.workloads:
         for c in wl.containers:
             if not c.liveness_probe:
-                gaps.append(f"  ⚠ {wl.qualified_name} / container '{c.name}': missing liveness probe")
+                gaps.append(
+                    f"  ⚠ {wl.qualified_name} / container '{c.name}': missing liveness probe"
+                )
             if not c.readiness_probe:
-                gaps.append(f"  ⚠ {wl.qualified_name} / container '{c.name}': missing readiness probe")
+                gaps.append(
+                    f"  ⚠ {wl.qualified_name} / container '{c.name}': missing readiness probe"
+                )
             if not c.resource_requests:
-                gaps.append(f"  ⚠ {wl.qualified_name} / container '{c.name}': no resource requests set")
+                gaps.append(
+                    f"  ⚠ {wl.qualified_name} / container '{c.name}': no resource requests set"
+                )
             if not c.resource_limits:
-                gaps.append(f"  ⚠ {wl.qualified_name} / container '{c.name}': no resource limits set")
+                gaps.append(
+                    f"  ⚠ {wl.qualified_name} / container '{c.name}': no resource limits set"
+                )
 
             # Archetype-specific gaps
             if c.archetype != "custom-app":
-                profile_key = c.archetype_display.lower().replace(" ", "_").replace("/", "_") if c.archetype_display else c.archetype
+                profile_key = (
+                    c.archetype_display.lower().replace(" ", "_").replace("/", "_")
+                    if c.archetype_display
+                    else c.archetype
+                )
                 profile = get_profile(profile_key)
                 if profile:
                     # Use capability-inferred telemetry to check for exporter
                     has_exporter = any(
-                        t.startswith("exporter:") or t == "builtin_metrics"
-                        for t in wl.telemetry
+                        t.startswith("exporter:") or t == "builtin_metrics" for t in wl.telemetry
                     )
                     if profile.exporter and not has_exporter:
                         gaps.append(
@@ -289,7 +327,9 @@ def _check_health_gaps(platform: Platform) -> str:
                             f"All {profile.display_name}-specific alerts require this exporter."
                         )
                     for req in profile.health_requirements:
-                        gaps.append(f"  ℹ {wl.qualified_name} / '{c.name}' ({profile.display_name}): {req}")
+                        gaps.append(
+                            f"  ℹ {wl.qualified_name} / '{c.name}' ({profile.display_name}): {req}"
+                        )
 
     # Services with no matching workload
     workload_qnames = {r.qualified_name for r in platform.workloads}
@@ -306,9 +346,14 @@ def _check_health_gaps(platform: Platform) -> str:
 
     # Platform-level insight: ServiceMonitor / PodMonitor presence
     if platform.has_service_monitors:
-        gaps.insert(0, "  ℹ ServiceMonitor/PodMonitor resources detected — advanced Prometheus Operator scraping is configured.")
+        gaps.insert(
+            0,
+            "  ℹ ServiceMonitor/PodMonitor resources detected — advanced Prometheus Operator scraping is configured.",
+        )
     else:
-        gaps.append("  ℹ No ServiceMonitor/PodMonitor resources found — consider adding them for Prometheus Operator auto-discovery.")
+        gaps.append(
+            "  ℹ No ServiceMonitor/PodMonitor resources found — consider adding them for Prometheus Operator auto-discovery."
+        )
 
     return f"Found {len(gaps)} gap(s):\n" + "\n".join(gaps)
 
@@ -344,12 +389,30 @@ def _check_single_req(req: str, wl: Any) -> bool:
     if req == "exporter":
         # Check telemetry capabilities populated by the scanner
         telemetry = getattr(wl, "telemetry", [])
-        return any(
-            t.startswith("exporter:") or t == "builtin_metrics"
-            for t in telemetry
-        )
+        return any(t.startswith("exporter:") or t == "builtin_metrics" for t in telemetry)
     # Unknown prerequisite — include but let the LLM decide
     return True
+
+
+def _unmet_reason(requires: str, wl: Any, profile: Any) -> str:
+    """Build a human-readable explanation of why a requirement is not met,
+    including specific remediation steps."""
+    parts = [r.strip().lower() for r in requires.split(",")]
+    reasons: list[str] = []
+    for p in parts:
+        if p == "exporter" and not _check_single_req(p, wl):
+            exporter_name = getattr(profile, "exporter", "") if profile else ""
+            if exporter_name:
+                reasons.append(f"deploy {exporter_name} sidecar")
+            else:
+                reasons.append("deploy a metrics exporter sidecar")
+        elif p == "replicas>1" and not _check_single_req(p, wl):
+            reasons.append(f"replicas={wl.replicas or 1}, need >1")
+        elif p == "statefulset" and not _check_single_req(p, wl):
+            reasons.append(f"kind={wl.kind}, need StatefulSet")
+    if not reasons:
+        return requires
+    return "; ".join(reasons)
 
 
 def _get_workload_insights(platform: Platform, qualified_name: str = "") -> str:
@@ -363,7 +426,7 @@ def _get_workload_insights(platform: Platform, qualified_name: str = "") -> str:
     sections: list[str] = []
     for wl in workloads:
         for c in wl.containers:
-            header = f"\n{'='*60}\n{wl.qualified_name} / container '{c.name}'\n{'='*60}"
+            header = f"\n{'=' * 60}\n{wl.qualified_name} / container '{c.name}'\n{'=' * 60}"
             header += f"\nImage: {c.image}"
             header += f"\nArchetype: {c.archetype}"
             if c.archetype_display:
@@ -377,13 +440,39 @@ def _get_workload_insights(platform: Platform, qualified_name: str = "") -> str:
             if wl.telemetry:
                 header += f"\nTelemetry capabilities: {', '.join(wl.telemetry)}"
             else:
-                header += "\nTelemetry capabilities: NONE DETECTED — exporter sidecar needed for domain metrics"
+                header += (
+                    "\nTelemetry capabilities: NONE DETECTED — domain metrics are NOT collectable"
+                )
+
+            # Observability readiness verdict
+            has_exporter = any(
+                t.startswith("exporter:") or t == "builtin_metrics" for t in wl.telemetry
+            )
+            has_scrape = any(
+                t == "scrape_annotations" or t.startswith("metrics_port:") for t in wl.telemetry
+            )
+            if has_exporter and has_scrape:
+                header += (
+                    "\nObservability readiness: READY — exporter present + scrape path configured"
+                )
+            elif has_exporter:
+                header += "\nObservability readiness: PARTIAL — exporter present but no scrape annotations/ServiceMonitor detected"
+            elif has_scrape:
+                header += "\nObservability readiness: PARTIAL — scrape config exists but no known exporter detected"
+            else:
+                header += "\nObservability readiness: NOT READY — no metrics exposure detected"
 
             # Look up the profile by registry key, falling back to archetype
-            profile_key = c.archetype_display.lower().replace(" ", "_").replace("/", "_") if c.archetype_display else c.archetype
+            profile_key = (
+                c.archetype_display.lower().replace(" ", "_").replace("/", "_")
+                if c.archetype_display
+                else c.archetype
+            )
             profile = get_profile(profile_key)
             if profile is None:
-                header += "\n\nNo archetype profile available — this appears to be a custom application."
+                header += (
+                    "\n\nNo archetype profile available — this appears to be a custom application."
+                )
                 if c.archetype_score < 0.25:
                     header += "\nDetection certainty is very low. Use generic Kubernetes metrics: "
                 else:
@@ -398,7 +487,9 @@ def _get_workload_insights(platform: Platform, qualified_name: str = "") -> str:
             lines.append(f"\nDescription: {profile.description}")
 
             if profile.exporter:
-                lines.append(f"\nRequired exporter: {profile.exporter} (port {profile.exporter_port})")
+                lines.append(
+                    f"\nRequired exporter: {profile.exporter} (port {profile.exporter_port})"
+                )
 
             if profile.golden_metrics:
                 lines.append("\n--- Golden Metrics ---")
@@ -406,7 +497,8 @@ def _get_workload_insights(platform: Platform, qualified_name: str = "") -> str:
                     if m.requires and not _check_requires(m.requires, wl):
                         lines.append(f"  • {m.name}: {m.description}")
                         lines.append(f"    PromQL: {m.query}")
-                        lines.append(f"    ⚠ CONDITIONAL — requires: {m.requires} (not met by this workload, skip unless you know otherwise)")
+                        fix = _unmet_reason(m.requires, wl, profile)
+                        lines.append(f"    ⚠ CONDITIONAL — not collectable: {fix}")
                     else:
                         lines.append(f"  • {m.name}: {m.description}")
                         lines.append(f"    PromQL: {m.query}")
@@ -418,7 +510,8 @@ def _get_workload_insights(platform: Platform, qualified_name: str = "") -> str:
                         lines.append(f"  • {a.name} [{a.severity}] (for: {a.for_duration})")
                         lines.append(f"    expr: {a.expr}")
                         lines.append(f"    summary: {a.summary}")
-                        lines.append(f"    ⚠ CONDITIONAL — requires: {a.requires} (not met by this workload, skip unless you know otherwise)")
+                        fix = _unmet_reason(a.requires, wl, profile)
+                        lines.append(f"    ⚠ CONDITIONAL — not collectable: {fix}")
                     else:
                         lines.append(f"  • {a.name} [{a.severity}] (for: {a.for_duration})")
                         lines.append(f"    expr: {a.expr}")
