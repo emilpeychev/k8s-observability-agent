@@ -74,6 +74,12 @@ class K8sResource(BaseModel):
     containers: list[ContainerSpec] = Field(default_factory=list)
     selector: dict[str, str] = Field(default_factory=dict)
 
+    # Telemetry capabilities detected from the manifest.
+    # Populated by the scanner's capability-inference pass.
+    # Examples: "exporter:postgres_exporter", "metrics_port:9187",
+    #           "scrape_annotations", "builtin_metrics"
+    telemetry: list[str] = Field(default_factory=list)
+
     # Service-specific
     service_type: str | None = None
     service_ports: list[dict[str, Any]] = Field(default_factory=list)
@@ -118,6 +124,11 @@ class Platform(BaseModel):
     @property
     def services(self) -> list[K8sResource]:
         return [r for r in self.resources if r.kind == "Service"]
+
+    @property
+    def has_service_monitors(self) -> bool:
+        """True if the repo contains ServiceMonitor or PodMonitor resources."""
+        return any(r.kind in ("ServiceMonitor", "PodMonitor") for r in self.resources)
 
     def summary(self) -> dict[str, int]:
         counts: dict[str, int] = {}

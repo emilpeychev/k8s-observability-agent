@@ -277,12 +277,16 @@ def _check_health_gaps(platform: Platform) -> str:
                 profile_key = c.archetype_display.lower().replace(" ", "_").replace("/", "_") if c.archetype_display else c.archetype
                 profile = get_profile(profile_key)
                 if profile:
-                    # Check if exporter is deployed as a sidecar in the same workload
-                    sibling_images = " ".join(sc.image for sc in wl.containers)
-                    if profile.exporter and profile.exporter not in sibling_images:
+                    # Use capability-inferred telemetry to check for exporter
+                    has_exporter = any(
+                        t.startswith("exporter:") or t == "builtin_metrics"
+                        for t in wl.telemetry
+                    )
+                    if profile.exporter and not has_exporter:
                         gaps.append(
                             f"  ⚠ {wl.qualified_name} / '{c.name}' ({profile.display_name}): "
-                            f"missing {profile.exporter} sidecar — domain metrics will not be available"
+                            f"missing {profile.exporter} — domain metrics will not be available. "
+                            f"All {profile.display_name}-specific alerts require this exporter."
                         )
                     for req in profile.health_requirements:
                         gaps.append(f"  ℹ {wl.qualified_name} / '{c.name}' ({profile.display_name}): {req}")
@@ -299,27 +303,51 @@ def _check_health_gaps(platform: Platform) -> str:
 
     if not gaps:
         return "No observability gaps detected — all workloads have probes and resource specs."
+
+    # Platform-level insight: ServiceMonitor / PodMonitor presence
+    if platform.has_service_monitors:
+        gaps.insert(0, "  ℹ ServiceMonitor/PodMonitor resources detected — advanced Prometheus Operator scraping is configured.")
+    else:
+        gaps.append("  ℹ No ServiceMonitor/PodMonitor resources found — consider adding them for Prometheus Operator auto-discovery.")
+
     return f"Found {len(gaps)} gap(s):\n" + "\n".join(gaps)
 
 
 def _check_requires(requires: str, wl: Any) -> bool:
     """Check whether a signal's prerequisite is met by the workload.
 
-    Supported ``requires`` values:
+    Supports comma-separated compound requirements (ALL must be met):
     * ``""``            — always applicable (no prerequisite)
     * ``"replicas>1"``  — only relevant if the workload has >1 replica
     * ``"statefulset"`` — only relevant if the workload is a StatefulSet
+    * ``"exporter"``    — only relevant if an exporter sidecar (or built-in
+                          metrics source) was detected in the pod spec
+    * ``"exporter,replicas>1"`` — both conditions must be true
 
     Returns *True* if the signal should be included as-is, *False* if it
     should be annotated as conditional / skipped.
     """
     if not requires:
         return True
-    req = requires.strip().lower()
+
+    # Compound requirements — all must pass
+    parts = [r.strip().lower() for r in requires.split(",")]
+    return all(_check_single_req(p, wl) for p in parts)
+
+
+def _check_single_req(req: str, wl: Any) -> bool:
+    """Evaluate a single prerequisite token."""
     if req == "replicas>1":
         return (wl.replicas or 1) > 1
     if req == "statefulset":
         return wl.kind == "StatefulSet"
+    if req == "exporter":
+        # Check telemetry capabilities populated by the scanner
+        telemetry = getattr(wl, "telemetry", [])
+        return any(
+            t.startswith("exporter:") or t == "builtin_metrics"
+            for t in telemetry
+        )
     # Unknown prerequisite — include but let the LLM decide
     return True
 
@@ -344,6 +372,12 @@ def _get_workload_insights(platform: Platform, qualified_name: str = "") -> str:
             header += f"\nPrimary signal: {c.archetype_match_source}"
             if c.archetype_evidence:
                 header += f"\nEvidence: {' + '.join(c.archetype_evidence)}"
+
+            # Telemetry capabilities
+            if wl.telemetry:
+                header += f"\nTelemetry capabilities: {', '.join(wl.telemetry)}"
+            else:
+                header += "\nTelemetry capabilities: NONE DETECTED — exporter sidecar needed for domain metrics"
 
             # Look up the profile by registry key, falling back to archetype
             profile_key = c.archetype_display.lower().replace(" ", "_").replace("/", "_") if c.archetype_display else c.archetype

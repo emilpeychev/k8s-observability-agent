@@ -148,6 +148,10 @@ def platform_report(platform: Platform) -> str:
                 if c.archetype_confidence != "low":
                     arch_str += f" [{c.archetype_confidence}]"
                 lines.append(f"    container: {c.name}  image={c.image}  probes=[{probe_str}]{arch_str}")
+            if wl.telemetry:
+                lines.append(f"    telemetry: {', '.join(wl.telemetry)}")
+            else:
+                lines.append("    telemetry: none detected")
 
     # Service details
     if platform.services:

@@ -96,7 +96,7 @@ class TestExecuteTool:
         assert "Unknown tool" in result
 
     def test_workload_insights_conditional_alerts_single_replica(self) -> None:
-        """Replication alerts should be marked CONDITIONAL for replicas=1."""
+        """Exporter-dependent alerts should be marked CONDITIONAL when no exporter is present."""
         from k8s_observability_agent.models import ContainerSpec
 
         pg_container = ContainerSpec(
@@ -119,17 +119,19 @@ class TestExecuteTool:
             replicas=1,
             source_file="db.yaml",
             containers=[pg_container],
+            telemetry=[],  # no exporter
             raw={},
         )
         from k8s_observability_agent.analyzer import build_platform
 
         platform = build_platform([deploy], ["db.yaml"], [])
         result = execute_tool(platform, "get_workload_insights", {})
+        # All pg_* alerts require an exporter, so should be conditional
         assert "CONDITIONAL" in result
-        assert "PostgresReplicationLagHigh" in result
+        assert "exporter" in result.lower()
 
     def test_workload_insights_replication_alerts_multi_replica(self) -> None:
-        """Replication alerts should NOT be marked CONDITIONAL for replicas>1."""
+        """With exporter present and replicas>1, replication alerts should be unconditional."""
         from k8s_observability_agent.models import ContainerSpec
 
         pg_container = ContainerSpec(
@@ -152,6 +154,7 @@ class TestExecuteTool:
             replicas=3,
             source_file="db.yaml",
             containers=[pg_container],
+            telemetry=["exporter:postgres_exporter"],
             raw={},
         )
         from k8s_observability_agent.analyzer import build_platform
@@ -160,3 +163,44 @@ class TestExecuteTool:
         result = execute_tool(platform, "get_workload_insights", {})
         assert "CONDITIONAL" not in result
         assert "PostgresReplicationLagHigh" in result
+
+    def test_workload_insights_exporter_present(self) -> None:
+        """When exporter sidecar is present, exporter-dependent alerts should be included normally."""
+        from k8s_observability_agent.models import ContainerSpec
+
+        pg_container = ContainerSpec(
+            name="postgres",
+            image="postgres:15",
+            ports=[5432],
+            archetype="database",
+            archetype_display="PostgreSQL",
+            archetype_confidence="high",
+            archetype_score=0.95,
+            archetype_match_source="image",
+        )
+        deploy = K8sResource(
+            api_version="apps/v1",
+            kind="Deployment",
+            name="db",
+            namespace="default",
+            replicas=1,
+            source_file="db.yaml",
+            containers=[pg_container],
+            telemetry=["exporter:postgres_exporter"],
+            raw={},
+        )
+        from k8s_observability_agent.analyzer import build_platform
+
+        platform = build_platform([deploy], ["db.yaml"], [])
+        result = execute_tool(platform, "get_workload_insights", {})
+        assert "PostgresTooManyConnections" in result
+        # Replication alerts should still be conditional (replicas=1)
+        assert "CONDITIONAL" in result  # for replication alerts
+        # But the exporter-only alerts should NOT have the CONDITIONAL marker
+        lines = result.split("\n")
+        for i, line in enumerate(lines):
+            if "PostgresTooManyConnections" in line:
+                # Check the next few lines for CONDITIONAL
+                nearby = "\n".join(lines[i:i + 3])
+                assert "CONDITIONAL" not in nearby
+                break

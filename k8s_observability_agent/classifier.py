@@ -103,28 +103,32 @@ _PG_PROFILE = _register(
                 "pg_active_connections",
                 'pg_stat_activity_count{state="active"}',
                 "Active connections (should stay below max_connections)",
+                requires="exporter",
             ),
             MetricSignal(
                 "pg_replication_lag_bytes",
                 "pg_replication_lag_bytes",
                 "Replication lag in bytes (streaming replicas)",
-                requires="replicas>1",
+                requires="exporter,replicas>1",
             ),
             MetricSignal(
                 "pg_transactions_per_sec",
                 "rate(pg_stat_database_xact_commit[5m]) + rate(pg_stat_database_xact_rollback[5m])",
                 "Transaction throughput (commits + rollbacks)",
+                requires="exporter",
             ),
             MetricSignal(
                 "pg_cache_hit_ratio",
                 "pg_stat_database_blks_hit / (pg_stat_database_blks_hit + pg_stat_database_blks_read)",
                 "Buffer cache hit ratio (should be > 0.99)",
                 panel_type="gauge",
+                requires="exporter",
             ),
             MetricSignal(
                 "pg_dead_tuples",
                 "pg_stat_user_tables_n_dead_tup",
                 "Dead tuples awaiting vacuum",
+                requires="exporter",
             ),
         ],
         alerts=[
@@ -134,6 +138,7 @@ _PG_PROFILE = _register(
                 severity="warning",
                 for_duration="5m",
                 summary="PostgreSQL connection count exceeds 80% of max_connections",
+                requires="exporter",
             ),
             AlertSignal(
                 "PostgresReplicationLagHigh",
@@ -141,7 +146,7 @@ _PG_PROFILE = _register(
                 severity="critical",
                 for_duration="5m",
                 summary="PostgreSQL replication lag exceeds 100 MB",
-                requires="replicas>1",
+                requires="exporter,replicas>1",
             ),
             AlertSignal(
                 "PostgresDeadTuplesHigh",
@@ -149,6 +154,7 @@ _PG_PROFILE = _register(
                 severity="warning",
                 for_duration="15m",
                 summary="High dead tuple count — autovacuum may be falling behind",
+                requires="exporter",
             ),
             AlertSignal(
                 "PostgresCacheHitRatioLow",
@@ -156,6 +162,7 @@ _PG_PROFILE = _register(
                 severity="warning",
                 for_duration="10m",
                 summary="Buffer cache hit ratio below 95% — consider increasing shared_buffers",
+                requires="exporter",
             ),
         ],
         dashboard_tags=["postgresql", "database"],
@@ -187,28 +194,32 @@ _MYSQL_PROFILE = _register(
                 "mysql_connections",
                 "mysql_global_status_threads_connected",
                 "Current open connections",
+                requires="exporter",
             ),
             MetricSignal(
                 "mysql_queries_per_sec",
                 "rate(mysql_global_status_queries[5m])",
                 "Query throughput",
+                requires="exporter",
             ),
             MetricSignal(
                 "mysql_slow_queries",
                 "rate(mysql_global_status_slow_queries[5m])",
                 "Slow query rate",
+                requires="exporter",
             ),
             MetricSignal(
                 "mysql_innodb_buffer_pool_hit_ratio",
                 "1 - (rate(mysql_global_status_innodb_buffer_pool_reads[5m]) / rate(mysql_global_status_innodb_buffer_pool_read_requests[5m]))",
                 "InnoDB buffer pool hit ratio",
                 panel_type="gauge",
+                requires="exporter",
             ),
             MetricSignal(
                 "mysql_replication_lag",
                 "mysql_slave_status_seconds_behind_master",
                 "Replication lag in seconds",
-                requires="replicas>1",
+                requires="exporter,replicas>1",
             ),
         ],
         alerts=[
@@ -218,6 +229,7 @@ _MYSQL_PROFILE = _register(
                 severity="warning",
                 for_duration="5m",
                 summary="MySQL connection count exceeds 80% of max_connections",
+                requires="exporter",
             ),
             AlertSignal(
                 "MySQLReplicationLagHigh",
@@ -225,7 +237,7 @@ _MYSQL_PROFILE = _register(
                 severity="critical",
                 for_duration="5m",
                 summary="MySQL replication lag exceeds 30 seconds",
-                requires="replicas>1",
+                requires="exporter,replicas>1",
             ),
             AlertSignal(
                 "MySQLSlowQueryRateHigh",
@@ -233,6 +245,7 @@ _MYSQL_PROFILE = _register(
                 severity="warning",
                 for_duration="10m",
                 summary="Elevated slow query rate",
+                requires="exporter",
             ),
         ],
         dashboard_tags=["mysql", "database"],
@@ -262,32 +275,38 @@ _REDIS_PROFILE = _register(
                 "redis_memory_used_bytes",
                 "redis_memory_used_bytes",
                 "Current memory usage",
+                requires="exporter",
             ),
             MetricSignal(
                 "redis_memory_max_bytes",
                 "redis_memory_max_bytes",
                 "Configured maxmemory limit",
+                requires="exporter",
             ),
             MetricSignal(
                 "redis_hit_rate",
                 "rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))",
                 "Cache hit ratio",
                 panel_type="gauge",
+                requires="exporter",
             ),
             MetricSignal(
                 "redis_evicted_keys",
                 "rate(redis_evicted_keys_total[5m])",
                 "Key eviction rate — nonzero means memory pressure",
+                requires="exporter",
             ),
             MetricSignal(
                 "redis_connected_clients",
                 "redis_connected_clients",
                 "Current client connections",
+                requires="exporter",
             ),
             MetricSignal(
                 "redis_ops_per_sec",
                 "rate(redis_commands_processed_total[5m])",
                 "Command throughput",
+                requires="exporter",
             ),
         ],
         alerts=[
@@ -297,6 +316,7 @@ _REDIS_PROFILE = _register(
                 severity="warning",
                 for_duration="5m",
                 summary="Redis memory usage above 90% of maxmemory",
+                requires="exporter",
             ),
             AlertSignal(
                 "RedisEvictionsActive",
@@ -304,6 +324,7 @@ _REDIS_PROFILE = _register(
                 severity="warning",
                 for_duration="10m",
                 summary="Redis is actively evicting keys — memory pressure",
+                requires="exporter",
             ),
             AlertSignal(
                 "RedisHighLatency",
@@ -311,6 +332,7 @@ _REDIS_PROFILE = _register(
                 severity="warning",
                 for_duration="5m",
                 summary="Redis slowlog growing — possible performance degradation",
+                requires="exporter",
             ),
         ],
         dashboard_tags=["redis", "cache"],
@@ -336,14 +358,14 @@ _MONGO_PROFILE = _register(
         exporter="mongodb_exporter",
         exporter_port=9216,
         golden_metrics=[
-            MetricSignal("mongodb_connections_current", "mongodb_ss_connections{conn_type='current'}", "Current connections"),
-            MetricSignal("mongodb_opcounters", "rate(mongodb_ss_opcounters_total[5m])", "Operation counters (insert/query/update/delete)"),
-            MetricSignal("mongodb_repl_lag", "mongodb_mongod_replset_member_optime_date - mongodb_mongod_replset_member_optime_date{state='PRIMARY'}", "Replication lag", requires="replicas>1"),
-            MetricSignal("mongodb_wiredtiger_cache", "mongodb_ss_wt_cache_bytes_currently_in_the_cache", "WiredTiger cache usage"),
+            MetricSignal("mongodb_connections_current", "mongodb_ss_connections{conn_type='current'}", "Current connections", requires="exporter"),
+            MetricSignal("mongodb_opcounters", "rate(mongodb_ss_opcounters_total[5m])", "Operation counters (insert/query/update/delete)", requires="exporter"),
+            MetricSignal("mongodb_repl_lag", "mongodb_mongod_replset_member_optime_date - mongodb_mongod_replset_member_optime_date{state='PRIMARY'}", "Replication lag", requires="exporter,replicas>1"),
+            MetricSignal("mongodb_wiredtiger_cache", "mongodb_ss_wt_cache_bytes_currently_in_the_cache", "WiredTiger cache usage", requires="exporter"),
         ],
         alerts=[
-            AlertSignal("MongoDBReplicationLag", "mongodb_mongod_replset_member_replication_lag > 10", severity="critical", for_duration="5m", summary="MongoDB replica set member lagging behind primary", requires="replicas>1"),
-            AlertSignal("MongoDBConnectionsHigh", "mongodb_ss_connections{conn_type='current'} > 5000", severity="warning", for_duration="5m", summary="MongoDB connection count high"),
+            AlertSignal("MongoDBReplicationLag", "mongodb_mongod_replset_member_replication_lag > 10", severity="critical", for_duration="5m", summary="MongoDB replica set member lagging behind primary", requires="exporter,replicas>1"),
+            AlertSignal("MongoDBConnectionsHigh", "mongodb_ss_connections{conn_type='current'} > 5000", severity="warning", for_duration="5m", summary="MongoDB connection count high", requires="exporter"),
         ],
         dashboard_tags=["mongodb", "database"],
         health_requirements=["Deploy mongodb_exporter to expose mongodb_* metrics"],
@@ -361,16 +383,16 @@ _ES_PROFILE = _register(
         exporter="elasticsearch_exporter",
         exporter_port=9114,
         golden_metrics=[
-            MetricSignal("es_cluster_health", "elasticsearch_cluster_health_status", "Cluster health (green/yellow/red)"),
-            MetricSignal("es_jvm_heap_used", "elasticsearch_jvm_memory_used_bytes{area='heap'}", "JVM heap usage"),
-            MetricSignal("es_indexing_rate", "rate(elasticsearch_indices_indexing_index_total[5m])", "Document indexing rate"),
-            MetricSignal("es_search_latency", "elasticsearch_indices_search_fetch_time_seconds / elasticsearch_indices_search_fetch_total", "Average search latency"),
-            MetricSignal("es_unassigned_shards", "elasticsearch_cluster_health_unassigned_shards", "Unassigned shard count"),
+            MetricSignal("es_cluster_health", "elasticsearch_cluster_health_status", "Cluster health (green/yellow/red)", requires="exporter"),
+            MetricSignal("es_jvm_heap_used", "elasticsearch_jvm_memory_used_bytes{area='heap'}", "JVM heap usage", requires="exporter"),
+            MetricSignal("es_indexing_rate", "rate(elasticsearch_indices_indexing_index_total[5m])", "Document indexing rate", requires="exporter"),
+            MetricSignal("es_search_latency", "elasticsearch_indices_search_fetch_time_seconds / elasticsearch_indices_search_fetch_total", "Average search latency", requires="exporter"),
+            MetricSignal("es_unassigned_shards", "elasticsearch_cluster_health_unassigned_shards", "Unassigned shard count", requires="exporter"),
         ],
         alerts=[
-            AlertSignal("ElasticsearchClusterRed", 'elasticsearch_cluster_health_status{color="red"} == 1', severity="critical", for_duration="1m", summary="Elasticsearch cluster health is RED"),
-            AlertSignal("ElasticsearchClusterYellow", 'elasticsearch_cluster_health_status{color="yellow"} == 1', severity="warning", for_duration="10m", summary="Elasticsearch cluster health is YELLOW"),
-            AlertSignal("ElasticsearchJVMHeapHigh", "elasticsearch_jvm_memory_used_bytes{area='heap'} / elasticsearch_jvm_memory_max_bytes{area='heap'} > 0.9", severity="warning", for_duration="5m", summary="Elasticsearch JVM heap usage above 90%"),
+            AlertSignal("ElasticsearchClusterRed", 'elasticsearch_cluster_health_status{color="red"} == 1', severity="critical", for_duration="1m", summary="Elasticsearch cluster health is RED", requires="exporter"),
+            AlertSignal("ElasticsearchClusterYellow", 'elasticsearch_cluster_health_status{color="yellow"} == 1', severity="warning", for_duration="10m", summary="Elasticsearch cluster health is YELLOW", requires="exporter"),
+            AlertSignal("ElasticsearchJVMHeapHigh", "elasticsearch_jvm_memory_used_bytes{area='heap'} / elasticsearch_jvm_memory_max_bytes{area='heap'} > 0.9", severity="warning", for_duration="5m", summary="Elasticsearch JVM heap usage above 90%", requires="exporter"),
         ],
         dashboard_tags=["elasticsearch", "search"],
         health_requirements=["Ensure /_cluster/health endpoint is accessible", "elasticsearch_exporter sidecar needed for prometheus metrics"],
@@ -388,15 +410,15 @@ _KAFKA_PROFILE = _register(
         exporter="kafka_exporter / JMX exporter",
         exporter_port=9308,
         golden_metrics=[
-            MetricSignal("kafka_consumer_lag", "kafka_consumergroup_lag", "Consumer group lag (messages behind)"),
-            MetricSignal("kafka_under_replicated_partitions", "kafka_server_replicamanager_underreplicatedpartitions", "Under-replicated partitions"),
-            MetricSignal("kafka_messages_in_per_sec", "rate(kafka_server_brokertopicmetrics_messagesin_total[5m])", "Message ingest rate"),
-            MetricSignal("kafka_isr_shrinks", "rate(kafka_server_replicamanager_isrshrinks_total[5m])", "ISR shrink rate — indicates broker instability"),
+            MetricSignal("kafka_consumer_lag", "kafka_consumergroup_lag", "Consumer group lag (messages behind)", requires="exporter"),
+            MetricSignal("kafka_under_replicated_partitions", "kafka_server_replicamanager_underreplicatedpartitions", "Under-replicated partitions", requires="exporter"),
+            MetricSignal("kafka_messages_in_per_sec", "rate(kafka_server_brokertopicmetrics_messagesin_total[5m])", "Message ingest rate", requires="exporter"),
+            MetricSignal("kafka_isr_shrinks", "rate(kafka_server_replicamanager_isrshrinks_total[5m])", "ISR shrink rate — indicates broker instability", requires="exporter"),
         ],
         alerts=[
-            AlertSignal("KafkaConsumerLagHigh", "kafka_consumergroup_lag > 10000", severity="warning", for_duration="10m", summary="Kafka consumer group lag exceeds 10k messages"),
-            AlertSignal("KafkaUnderReplicated", "kafka_server_replicamanager_underreplicatedpartitions > 0", severity="critical", for_duration="5m", summary="Kafka has under-replicated partitions — risk of data loss", requires="replicas>1"),
-            AlertSignal("KafkaISRShrinking", "rate(kafka_server_replicamanager_isrshrinks_total[5m]) > 0", severity="warning", for_duration="5m", summary="Kafka ISR is shrinking — broker may be unhealthy", requires="replicas>1"),
+            AlertSignal("KafkaConsumerLagHigh", "kafka_consumergroup_lag > 10000", severity="warning", for_duration="10m", summary="Kafka consumer group lag exceeds 10k messages", requires="exporter"),
+            AlertSignal("KafkaUnderReplicated", "kafka_server_replicamanager_underreplicatedpartitions > 0", severity="critical", for_duration="5m", summary="Kafka has under-replicated partitions — risk of data loss", requires="exporter,replicas>1"),
+            AlertSignal("KafkaISRShrinking", "rate(kafka_server_replicamanager_isrshrinks_total[5m]) > 0", severity="warning", for_duration="5m", summary="Kafka ISR is shrinking — broker may be unhealthy", requires="exporter,replicas>1"),
         ],
         dashboard_tags=["kafka", "messaging"],
         health_requirements=["Deploy kafka_exporter or enable JMX exporter for kafka_* metrics", "Monitor ZooKeeper (or KRaft controller) health separately"],
@@ -440,12 +462,12 @@ _NATS_PROFILE = _register(
         exporter="prometheus-nats-exporter",
         exporter_port=7777,
         golden_metrics=[
-            MetricSignal("nats_connections", "nats_varz_connections", "Active client connections"),
-            MetricSignal("nats_messages_in", "rate(nats_varz_in_msgs[5m])", "Inbound message rate"),
-            MetricSignal("nats_slow_consumers", "nats_varz_slow_consumers", "Slow consumer count"),
+            MetricSignal("nats_connections", "nats_varz_connections", "Active client connections", requires="exporter"),
+            MetricSignal("nats_messages_in", "rate(nats_varz_in_msgs[5m])", "Inbound message rate", requires="exporter"),
+            MetricSignal("nats_slow_consumers", "nats_varz_slow_consumers", "Slow consumer count", requires="exporter"),
         ],
         alerts=[
-            AlertSignal("NATSSlowConsumers", "nats_varz_slow_consumers > 0", severity="warning", for_duration="5m", summary="NATS has slow consumers — messages may be dropped"),
+            AlertSignal("NATSSlowConsumers", "nats_varz_slow_consumers > 0", severity="warning", for_duration="5m", summary="NATS has slow consumers — messages may be dropped", requires="exporter"),
         ],
         dashboard_tags=["nats", "messaging"],
         health_requirements=["Deploy prometheus-nats-exporter sidecar"],
@@ -463,14 +485,14 @@ _NGINX_PROFILE = _register(
         exporter="nginx-prometheus-exporter (stub_status) or nginx-vts-exporter",
         exporter_port=9113,
         golden_metrics=[
-            MetricSignal("nginx_active_connections", "nginx_connections_active", "Currently active client connections"),
-            MetricSignal("nginx_request_rate", "rate(nginx_http_requests_total[5m])", "HTTP request throughput"),
-            MetricSignal("nginx_5xx_rate", 'rate(nginx_http_requests_total{status=~"5.."}[5m])', "5xx error rate"),
-            MetricSignal("nginx_upstream_response_time", 'nginx_upstream_response_time_seconds{quantile="0.95"}', "95th percentile upstream response time"),
+            MetricSignal("nginx_active_connections", "nginx_connections_active", "Currently active client connections", requires="exporter"),
+            MetricSignal("nginx_request_rate", "rate(nginx_http_requests_total[5m])", "HTTP request throughput", requires="exporter"),
+            MetricSignal("nginx_5xx_rate", 'rate(nginx_http_requests_total{status=~"5.."}[5m])', "5xx error rate", requires="exporter"),
+            MetricSignal("nginx_upstream_response_time", 'nginx_upstream_response_time_seconds{quantile="0.95"}', "95th percentile upstream response time", requires="exporter"),
         ],
         alerts=[
-            AlertSignal("NginxHighErrorRate", 'rate(nginx_http_requests_total{status=~"5.."}[5m]) / rate(nginx_http_requests_total[5m]) > 0.05', severity="critical", for_duration="5m", summary="NGINX 5xx error rate exceeds 5%"),
-            AlertSignal("NginxConnectionsNearLimit", "nginx_connections_active > 900", severity="warning", for_duration="5m", summary="NGINX active connections approaching worker_connections limit"),
+            AlertSignal("NginxHighErrorRate", 'rate(nginx_http_requests_total{status=~"5.."}[5m]) / rate(nginx_http_requests_total[5m]) > 0.05', severity="critical", for_duration="5m", summary="NGINX 5xx error rate exceeds 5%", requires="exporter"),
+            AlertSignal("NginxConnectionsNearLimit", "nginx_connections_active > 900", severity="warning", for_duration="5m", summary="NGINX active connections approaching worker_connections limit", requires="exporter"),
         ],
         dashboard_tags=["nginx", "web"],
         health_requirements=["Enable stub_status or the VTS module for metrics exposure", "Deploy nginx-prometheus-exporter sidecar"],
@@ -596,6 +618,32 @@ _FLUENTD_PROFILE = _register(
         recommendations=["Size buffers based on peak log throughput", "Monitor retry count per output plugin"],
     )
 )
+
+
+# ──────────────────────────── Exporter Detection ──────────────────────────────
+# Maps exporter name substrings to image regex patterns used by the
+# capability-inference layer in scanner.py.  If any container in a pod
+# matches one of these, we know the corresponding domain metrics are
+# available without needing cluster access.
+
+EXPORTER_IMAGE_PATTERNS: dict[str, re.Pattern[str]] = {
+    "postgres_exporter":      re.compile(r"postgres[_-]?exporter", re.I),
+    "mysqld_exporter":        re.compile(r"mysql[d]?[_-]?exporter", re.I),
+    "redis_exporter":         re.compile(r"redis[_-]?exporter", re.I),
+    "mongodb_exporter":       re.compile(r"mongo(db)?[_-]?exporter", re.I),
+    "elasticsearch_exporter": re.compile(r"elasticsearch[_-]?exporter", re.I),
+    "kafka_exporter":         re.compile(r"kafka[_-]?exporter|jmx[_-]?exporter", re.I),
+    "nats_exporter":          re.compile(r"(prometheus[_-])?nats[_-]?exporter", re.I),
+    "nginx_exporter":         re.compile(r"nginx[_-]?(prometheus[_-])?exporter|nginx[_-]vts", re.I),
+    "haproxy_exporter":       re.compile(r"haproxy[_-]?exporter", re.I),
+    "node_exporter":          re.compile(r"node[_-]?exporter", re.I),
+}
+
+# Profiles whose metrics are exposed by the main container itself (no sidecar needed).
+BUILTIN_METRICS_PROFILES: set[str] = {
+    "rabbitmq", "envoy", "haproxy", "prometheus", "grafana",
+    "fluentd_fluent_bit", "fluentd",
+}
 
 
 # ──────────────────────────── Image → Profile Mapping ─────────────────────────

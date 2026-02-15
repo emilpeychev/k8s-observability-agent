@@ -12,7 +12,12 @@ import pathspec
 import yaml
 from git import Repo as GitRepo
 
-from k8s_observability_agent.classifier import classify_image
+from k8s_observability_agent.classifier import (
+    BUILTIN_METRICS_PROFILES,
+    EXPORTER_IMAGE_PATTERNS,
+    classify_image,
+    get_profile,
+)
 from k8s_observability_agent.config import Settings
 from k8s_observability_agent.models import ContainerSpec, K8sResource
 
@@ -139,6 +144,69 @@ def _sanitize_raw(doc: dict) -> dict:
     return doc
 
 
+def _detect_telemetry(
+    parsed_containers: list[ContainerSpec],
+    raw_containers: list[dict],
+    pod_annotations: dict[str, str],
+) -> list[str]:
+    """Infer what telemetry this workload can actually expose.
+
+    This is the capability-inference layer. It checks the pod manifest for
+    signals that domain-specific metrics are *collectable*, not just
+    *relevant*.  Without this, the tool would emit alerts referencing
+    metrics that exist only if an exporter sidecar is deployed.
+
+    Detected capabilities (stored as plain strings):
+    * ``"exporter:<name>"``      — an exporter sidecar container is present
+    * ``"builtin_metrics"``      — the profile itself exposes /metrics
+    * ``"metrics_port:<port>"``  — a container port named "metrics" exists
+    * ``"scrape_annotations"``   — ``prometheus.io/scrape: "true"`` is set
+    """
+    caps: list[str] = []
+
+    all_images = [c.get("image", "") for c in raw_containers]
+
+    # 1. Exporter sidecar detection — match container images against known
+    #    exporter patterns.
+    for exporter_name, pattern in EXPORTER_IMAGE_PATTERNS.items():
+        for img in all_images:
+            if pattern.search(img):
+                caps.append(f"exporter:{exporter_name}")
+                break  # one match per exporter is enough
+
+    # 2. Built-in metrics — profiles like Envoy, Prometheus, Grafana expose
+    #    /metrics from the main container.  If ANY container was classified
+    #    into a built-in profile, record the capability.
+    for c in parsed_containers:
+        if c.archetype != "custom-app" and c.archetype_display:
+            profile_key = c.archetype_display.lower().replace(" ", "_").replace("/", "_")
+            if profile_key in BUILTIN_METRICS_PROFILES:
+                caps.append("builtin_metrics")
+                # Also record as exporter so `requires: "exporter"` passes
+                profile = get_profile(profile_key)
+                if profile and profile.exporter:
+                    caps.append(f"exporter:{profile.exporter}")
+
+    # 3. Ports named "metrics" — a strong signal that something exposes
+    #    Prometheus metrics, even if we can't identify the specific exporter.
+    for raw in raw_containers:
+        for port in raw.get("ports", []):
+            port_name = port.get("name", "").lower()
+            if port_name == "metrics":
+                cp = port.get("containerPort", 0)
+                caps.append(f"metrics_port:{cp}")
+
+    # 4. Prometheus scrape annotations on the pod template.
+    scrape = pod_annotations.get("prometheus.io/scrape", "").lower()
+    if scrape == "true":
+        caps.append("scrape_annotations")
+        scrape_port = pod_annotations.get("prometheus.io/port", "")
+        if scrape_port:
+            caps.append(f"metrics_port:{scrape_port}")
+
+    return caps
+
+
 def _parse_resource(doc: dict, source_file: str) -> K8sResource:
     """Convert a raw manifest dict into a K8sResource model."""
     metadata = doc.get("metadata", {})
@@ -166,6 +234,12 @@ def _parse_resource(doc: dict, source_file: str) -> K8sResource:
         res.containers = [_parse_container(c, labels=pod_labels) for c in pod_spec.get("containers", [])]
         match_labels = spec.get("selector", {}).get("matchLabels", {})
         res.selector = match_labels
+
+        # ── Capability inference ──────────────────────────────────────
+        # Detect what telemetry this workload can actually produce.
+        pod_annotations = spec.get("template", {}).get("metadata", {}).get("annotations", {})
+        raw_containers = pod_spec.get("containers", []) + pod_spec.get("initContainers", [])
+        res.telemetry = _detect_telemetry(res.containers, raw_containers, pod_annotations)
 
     # Enrich services
     if res.kind == "Service":
