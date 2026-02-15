@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from importlib.resources import files as importlib_files
 from pathlib import Path
 
@@ -54,7 +55,7 @@ def render_grafana_dashboards(plan: ObservabilityPlan) -> list[tuple[str, str]]:
             content = json.dumps(parsed, indent=2)
         except json.JSONDecodeError:
             content = raw
-        slug = dashboard.title.lower().replace(" ", "-")[:40]
+        slug = re.sub(r"[^\w\s-]", "", dashboard.title.lower()).strip().replace(" ", "-")[:40]
         filename = f"grafana-{slug}.json"
         results.append((filename, content))
     return results
