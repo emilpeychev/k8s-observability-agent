@@ -113,6 +113,52 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "get_iac_resources",
+        "description": (
+            "Get all Infrastructure-as-Code resources discovered in the repository. "
+            "This includes Terraform resources (AWS RDS, ElastiCache, GCP SQL, Azure Redis, etc.), "
+            "Helm charts and their dependencies, Kustomize overlays, and Pulumi programs. "
+            "Each resource has an inferred archetype and monitoring notes explaining what "
+            "observability is needed. Use this to understand the full infrastructure footprint "
+            "beyond just raw K8s manifests."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "Filter by IaC source: 'terraform', 'helm', 'kustomize', 'pulumi'. Leave empty for all.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_aws_resources",
+        "description": (
+            "Get all live AWS resources discovered from the AWS account. "
+            "This includes RDS databases, ElastiCache clusters, MSK/Kafka, SQS queues, "
+            "Lambda functions, ECS services, EKS clusters, OpenSearch domains, DynamoDB tables, "
+            "SNS topics, and S3 buckets. Each resource includes its archetype, status, "
+            "configuration properties, and monitoring recommendations. "
+            "Use this to understand what AWS infrastructure backs the platform and needs monitoring."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "service": {
+                    "type": "string",
+                    "description": (
+                        "Filter by AWS service name: 'rds', 'elasticache', 'msk', 'sqs', "
+                        "'lambda', 'ecs', 'eks', 'opensearch', 'dynamodb', 'sns', 's3'. "
+                        "Leave empty for all."
+                    ),
+                },
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "generate_observability_plan",
         "description": (
             "Generate the final observability plan including Prometheus alert rules, "
@@ -323,6 +369,157 @@ def _get_platform_summary(platform: Platform) -> str:
         lines.append(f"  READY:     {ready}/{total} workloads (exporter + scrape path)")
         lines.append(f"  PARTIAL:   {partial}/{total} workloads (exporter OR scrape, not both)")
         lines.append(f"  NOT READY: {not_ready}/{total} workloads (no metrics exposure)")
+
+    # IaC summary
+    if platform.iac_discovery and platform.iac_discovery.resources:
+        iac = platform.iac_discovery
+        lines.append("")
+        lines.append("Infrastructure as Code:")
+        for source_name, count in iac.summary().items():
+            lines.append(f"  {source_name}: {count} resources")
+        infra_with_arch = [r for r in iac.resources if r.archetype and r.archetype != "custom-app"]
+        if infra_with_arch:
+            lines.append("")
+            lines.append("Infrastructure requiring monitoring:")
+            for r in infra_with_arch:
+                lines.append(f"  {r.resource_type}/{r.name} [{r.archetype}]")
+                for note in r.monitoring_notes[:2]:
+                    lines.append(f"    → {note}")
+
+    # AWS summary
+    if platform.aws_discovery and platform.aws_discovery.resources:
+        aws = platform.aws_discovery
+        lines.append("")
+        lines.append("AWS Live Resources:")
+        regions = aws.regions_scanned or ([aws.region] if aws.region else [])
+        if regions:
+            lines.append(f"  Regions: {', '.join(regions)}")
+        for rtype, count in sorted(aws.summary().items()):
+            lines.append(f"  {rtype}: {count}")
+        aws_with_arch = [r for r in aws.resources if r.archetype and r.archetype != "custom-app"]
+        if aws_with_arch:
+            lines.append("")
+            lines.append("AWS infrastructure requiring monitoring:")
+            for r in aws_with_arch:
+                lines.append(f"  {r.resource_type}/{r.name} [{r.archetype}]")
+                for note in r.monitoring_notes[:2]:
+                    lines.append(f"    → {note}")
+
+    return "\n".join(lines)
+
+
+def _get_iac_resources(platform: Platform, source: str = "") -> str:
+    """Return IaC resources discovered in the repository."""
+    if not platform.iac_discovery or not platform.iac_discovery.resources:
+        return "No Infrastructure-as-Code resources found in this repository."
+
+    iac = platform.iac_discovery
+    resources = iac.resources
+
+    if source:
+        resources = [r for r in resources if r.source.value == source.lower()]
+        if not resources:
+            return f"No {source} resources found. Available sources: {', '.join(iac.summary().keys())}"
+
+    lines: list[str] = []
+    lines.append(f"IaC resources found: {len(resources)}")
+    lines.append(f"Sources: {', '.join(f'{k}={v}' for k, v in iac.summary().items())}")
+    lines.append(f"Files scanned: {len(iac.files_scanned)}")
+    lines.append("")
+
+    # Group by source
+    by_source: dict[str, list] = {}
+    for r in resources:
+        by_source.setdefault(r.source.value, []).append(r)
+
+    for src, src_resources in by_source.items():
+        lines.append(f"── {src.upper()} ({len(src_resources)} resources) ──")
+        for r in src_resources:
+            lines.append(f"  {r.resource_type}/{r.name}")
+            if r.provider:
+                lines.append(f"    provider: {r.provider}")
+            if r.archetype and r.archetype != "custom-app":
+                lines.append(f"    archetype: {r.archetype}")
+            if r.monitoring_notes:
+                for note in r.monitoring_notes:
+                    lines.append(f"    → {note}")
+            if r.properties:
+                # Show key properties (limit to avoid noise)
+                shown = {k: v for k, v in r.properties.items()
+                         if k in ("engine", "engine_version", "instance_class",
+                                  "node_type", "chart", "repository", "image",
+                                  "version", "description", "runtime", "namespace")}
+                if shown:
+                    lines.append(f"    properties: {json.dumps(shown, default=str)}")
+            lines.append("")
+
+    if iac.helm_releases:
+        lines.append(f"── HELM RELEASES ({len(iac.helm_releases)}) ──")
+        for hr in iac.helm_releases:
+            lines.append(f"  chart={hr.get('chart', '?')}  repo={hr.get('repository', '')}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _get_aws_resources(platform: Platform, service: str = "") -> str:
+    """Return live AWS resources discovered from the AWS account."""
+    if not platform.aws_discovery or not platform.aws_discovery.resources:
+        return "No AWS resources discovered. Run with --aws-region to enable AWS discovery."
+
+    aws = platform.aws_discovery
+    resources = aws.resources
+
+    if service:
+        svc_lower = service.lower()
+        resources = [
+            r for r in resources
+            if svc_lower in r.resource_type.lower()
+        ]
+        if not resources:
+            available = ", ".join(aws.service_names)
+            return f"No {service} resources found. Available services: {available}"
+
+    lines: list[str] = []
+    regions = aws.regions_scanned or ([aws.region] if aws.region else ["(default)"])
+    lines.append(f"AWS resources found: {len(resources)}")
+    lines.append(f"Regions: {', '.join(regions)}")
+    lines.append("")
+
+    # Group by resource type
+    by_type: dict[str, list] = {}
+    for r in resources:
+        by_type.setdefault(r.resource_type, []).append(r)
+
+    for rtype, type_resources in sorted(by_type.items()):
+        lines.append(f"── {rtype.upper()} ({len(type_resources)}) ──")
+        for r in type_resources:
+            status = r.properties.get("status", "")
+            status_str = f"  status={status}" if status else ""
+            lines.append(f"  {r.name}{status_str}")
+            if r.archetype and r.archetype != "custom-app":
+                lines.append(f"    archetype: {r.archetype}")
+            if r.monitoring_notes:
+                for note in r.monitoring_notes:
+                    lines.append(f"    → {note}")
+            # Show key properties
+            shown = {
+                k: v for k, v in r.properties.items()
+                if k in (
+                    "engine", "engine_version", "instance_class", "node_type",
+                    "endpoint", "port", "multi_az", "runtime", "memory_mb",
+                    "instance_type", "version", "kafka_version", "billing_mode",
+                    "num_nodes", "broker_nodes", "desired_count", "running_count",
+                )
+            }
+            if shown:
+                lines.append(f"    properties: {json.dumps(shown, default=str)}")
+            lines.append("")
+
+    if aws.errors:
+        lines.append("── ERRORS ──")
+        for err in aws.errors:
+            lines.append(f"  ⚠ {err}")
 
     return "\n".join(lines)
 
@@ -597,6 +794,10 @@ def execute_tool(platform: Platform, tool_name: str, tool_input: dict[str, Any])
             return _check_health_gaps(platform)
         case "get_workload_insights":
             return _get_workload_insights(platform, **tool_input)
+        case "get_iac_resources":
+            return _get_iac_resources(platform, **tool_input)
+        case "get_aws_resources":
+            return _get_aws_resources(platform, **tool_input)
         case "generate_observability_plan":
             # This tool's output is structured — the agent core handles it specially.
             return json.dumps(tool_input, indent=2)

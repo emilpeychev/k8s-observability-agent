@@ -88,6 +88,24 @@ class Settings(BaseModel):
         description="Path to a CA certificate bundle for TLS verification (e.g. tls/ca.crt).",
     )
 
+    # ── AWS discovery settings ───────────────────────────────────────
+    aws_region: str = Field(
+        default="",
+        description="AWS region to scan (e.g. eu-west-1). Uses boto3 default if empty.",
+    )
+    aws_profile: str = Field(
+        default="",
+        description="AWS CLI profile name. Uses default credentials if empty.",
+    )
+    aws_regions: list[str] = Field(
+        default_factory=list,
+        description="Multiple AWS regions to scan (overrides aws_region).",
+    )
+    aws_services: list[str] = Field(
+        default_factory=list,
+        description="Limit AWS discovery to specific services (e.g. rds, elasticache).",
+    )
+
     @property
     def resolved_output_dir(self) -> Path:
         return Path(self.output_dir).resolve()

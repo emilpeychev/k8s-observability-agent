@@ -98,6 +98,119 @@ class K8sResource(BaseModel):
         return f"{self.namespace}/{self.kind}/{self.name}"
 
 
+# ──────────────────────────── IaC Resources ───────────────────────────────────
+
+
+class IaCSource(str, Enum):
+    """The IaC tool that produced this resource."""
+
+    TERRAFORM = "terraform"
+    HELM = "helm"
+    KUSTOMIZE = "kustomize"
+    PULUMI = "pulumi"
+
+
+class IaCResource(BaseModel):
+    """An infrastructure or Kubernetes resource extracted from IaC code."""
+
+    source: IaCSource
+    source_file: str = ""
+    resource_type: str = Field(
+        description="IaC resource type, e.g. 'kubernetes_deployment', 'aws_rds_instance', 'helm_release'",
+    )
+    name: str = ""
+    provider: str = Field(
+        default="",
+        description="Cloud / provider, e.g. 'aws', 'gcp', 'azure', 'kubernetes'",
+    )
+    properties: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Key properties extracted from the resource block",
+    )
+
+    # Observability relevance
+    archetype: str = Field(
+        default="",
+        description="Inferred workload archetype (database, cache, etc.)",
+    )
+    monitoring_notes: list[str] = Field(
+        default_factory=list,
+        description="What monitoring this resource needs",
+    )
+
+    @property
+    def display_type(self) -> str:
+        """Human-readable resource type."""
+        return self.resource_type.replace("_", " ").title()
+
+
+class IaCDiscovery(BaseModel):
+    """Aggregated IaC analysis results."""
+
+    resources: list[IaCResource] = Field(default_factory=list)
+    helm_releases: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Helm releases found in IaC (chart, repo, values)",
+    )
+    k8s_resources_from_iac: list[K8sResource] = Field(
+        default_factory=list,
+        description="K8s resources extracted or rendered from IaC",
+    )
+    files_scanned: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+    @property
+    def has_terraform(self) -> bool:
+        return any(r.source == IaCSource.TERRAFORM for r in self.resources)
+
+    @property
+    def has_helm(self) -> bool:
+        return any(r.source == IaCSource.HELM for r in self.resources) or bool(self.helm_releases)
+
+    @property
+    def has_kustomize(self) -> bool:
+        return any(r.source == IaCSource.KUSTOMIZE for r in self.resources)
+
+    @property
+    def has_pulumi(self) -> bool:
+        return any(r.source == IaCSource.PULUMI for r in self.resources)
+
+    def summary(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for r in self.resources:
+            counts[r.source.value] = counts.get(r.source.value, 0) + 1
+        return counts
+
+
+# ────────────────────────── AWS Discovery ─────────────────────────────────────
+
+
+class AwsDiscovery(BaseModel):
+    """Aggregated AWS resource discovery results."""
+
+    resources: list[IaCResource] = Field(default_factory=list)
+    region: str = Field(default="", description="Primary AWS region scanned")
+    regions_scanned: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+    def summary(self) -> dict[str, int]:
+        """Count resources by type (e.g. aws_rds_instance=2, aws_sqs_queue=5)."""
+        counts: dict[str, int] = {}
+        for r in self.resources:
+            counts[r.resource_type] = counts.get(r.resource_type, 0) + 1
+        return counts
+
+    @property
+    def service_names(self) -> list[str]:
+        """Unique AWS service names found."""
+        services: set[str] = set()
+        for r in self.resources:
+            # aws_rds_instance → rds, aws_lambda_function → lambda
+            parts = r.resource_type.removeprefix("aws_").split("_")
+            services.add(parts[0] if parts else r.resource_type)
+        return sorted(services)
+
+
 # ────────────────────────── Platform Model ────────────────────────────────────
 
 
@@ -118,6 +231,14 @@ class Platform(BaseModel):
     namespaces: list[str] = Field(default_factory=list)
     manifest_files: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    iac_discovery: IaCDiscovery | None = Field(
+        default=None,
+        description="IaC analysis results (Terraform, Helm, Kustomize, Pulumi)",
+    )
+    aws_discovery: AwsDiscovery | None = Field(
+        default=None,
+        description="Live AWS resource discovery results",
+    )
 
     @property
     def workloads(self) -> list[K8sResource]:

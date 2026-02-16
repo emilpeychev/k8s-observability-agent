@@ -81,6 +81,14 @@ to a scanned Kubernetes platform extracted from a Git repository. Your job is to
 
 Always start by calling `get_platform_summary`, `list_resources`, and \
 `get_workload_insights` to orient yourself, then drill into details as needed. \
+If the platform summary mentions IaC resources (Terraform, Helm, Kustomize, Pulumi), \
+call `get_iac_resources` to discover infrastructure dependencies like managed databases, \
+caches, and message queues. These infrastructure resources need monitoring too — include \
+the recommended exporters and dashboards from the IaC analysis in your plan. \
+If the platform summary mentions AWS live resources, call `get_aws_resources` to see \
+the actual running AWS infrastructure (RDS, ElastiCache, MSK, Lambda, ECS, etc.). \
+Each AWS resource includes monitoring notes — use them to recommend appropriate \
+CloudWatch metrics, exporters, and Grafana dashboards. \
 Be thorough — cover every workload. For each known archetype, include the \
 recommended exporter deployment if not already present.
 """

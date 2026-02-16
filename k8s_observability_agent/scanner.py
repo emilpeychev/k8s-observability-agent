@@ -19,7 +19,8 @@ from k8s_observability_agent.classifier import (
     get_profile,
 )
 from k8s_observability_agent.config import Settings
-from k8s_observability_agent.models import ContainerSpec, K8sResource
+from k8s_observability_agent.iac import scan_iac
+from k8s_observability_agent.models import ContainerSpec, IaCDiscovery, K8sResource
 
 logger = logging.getLogger(__name__)
 
@@ -281,8 +282,8 @@ def parse_manifest_file(path: Path, repo_root: Path | None = None) -> list[K8sRe
     return resources
 
 
-def scan_repository(settings: Settings) -> tuple[list[K8sResource], list[str], list[str]]:
-    """Scan a repository and return (resources, manifest_files, errors).
+def scan_repository(settings: Settings) -> tuple[list[K8sResource], list[str], list[str], IaCDiscovery | None]:
+    """Scan a repository and return (resources, manifest_files, errors, iac_discovery).
 
     If *settings.github_url* is set the repo is cloned first into a temp
     directory that is automatically cleaned up after scanning.
@@ -300,7 +301,7 @@ def scan_repository(settings: Settings) -> tuple[list[K8sResource], list[str], l
 def _scan_directory(
     repo_root: Path,
     settings: Settings,
-) -> tuple[list[K8sResource], list[str], list[str]]:
+) -> tuple[list[K8sResource], list[str], list[str], IaCDiscovery | None]:
     """Internal: scan a directory after it's been resolved/cloned."""
     if not repo_root.is_dir():
         raise FileNotFoundError(f"Repository path does not exist: {repo_root}")
@@ -325,10 +326,27 @@ def _scan_directory(
         except Exception as exc:
             errors.append(f"{rel}: {exc}")
 
+    # ── IaC scanning ──────────────────────────────────────────────────
+    iac_discovery: IaCDiscovery | None = None
+    try:
+        iac_discovery = scan_iac(repo_root)
+        # Merge rendered K8s resources from IaC into the main resource list
+        if iac_discovery.k8s_resources_from_iac:
+            all_resources.extend(iac_discovery.k8s_resources_from_iac)
+            logger.info(
+                "Added %d K8s resources rendered from IaC",
+                len(iac_discovery.k8s_resources_from_iac),
+            )
+        if iac_discovery.errors:
+            errors.extend(iac_discovery.errors)
+    except Exception as exc:
+        logger.warning("IaC scanning failed: %s", exc)
+        errors.append(f"IaC scan error: {exc}")
+
     logger.info(
         "Scanned %d files → %d K8s resources (%d errors)",
         len(manifest_files),
         len(all_resources),
         len(errors),
     )
-    return all_resources, file_paths, errors
+    return all_resources, file_paths, errors, iac_discovery

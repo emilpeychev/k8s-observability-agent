@@ -35,6 +35,59 @@ def _configure_logging(verbose: bool) -> None:
     logging.getLogger("git").setLevel(logging.WARNING)
 
 
+def _run_aws_discovery(settings: Settings):  # noqa: ANN201
+    """Discover live AWS resources if region is configured. Returns AwsDiscovery | None."""
+    from k8s_observability_agent.aws import discover_aws_multi_region, discover_aws_resources
+    from k8s_observability_agent.models import AwsDiscovery
+
+    regions = settings.aws_regions
+    profile = settings.aws_profile
+    services = settings.aws_services or None
+
+    console.print(Panel("AWS Discovery — scanning live resources", style="bold yellow"))
+
+    try:
+        if regions:
+            resources, errors = discover_aws_multi_region(
+                regions=regions, profile=profile, services=services,
+            )
+            region_str = ", ".join(regions)
+        else:
+            region = settings.aws_region
+            resources, errors = discover_aws_resources(
+                region=region, profile=profile, services=services,
+            )
+            regions = [region] if region else []
+            region_str = region or "(default)"
+
+        if resources:
+            console.print(
+                f"  Found [green]{len(resources)}[/green] AWS resources in {region_str}"
+            )
+        else:
+            console.print(f"  [yellow]No AWS resources found in {region_str}[/yellow]")
+
+        if errors:
+            for err in errors[:3]:
+                console.print(f"  [dim red]{err}[/dim red]")
+
+        return AwsDiscovery(
+            resources=resources,
+            region=settings.aws_region,
+            regions_scanned=regions,
+            errors=errors,
+        )
+    except ImportError:
+        console.print(
+            "[red]boto3 is required for AWS discovery. "
+            "Install it with: pip install 'k8s-observability-agent[aws]'[/red]"
+        )
+        return None
+    except Exception as exc:
+        console.print(f"[red]AWS discovery failed: {exc}[/red]")
+        return None
+
+
 @click.group()
 @click.version_option(version=__version__, prog_name="k8s-obs")
 def main() -> None:
@@ -54,6 +107,13 @@ def main() -> None:
 @click.option("--api-key", default="", help="Anthropic API key (or set ANTHROPIC_API_KEY env var).")
 @click.option("--max-turns", default=30, type=int, help="Maximum agent reasoning turns.")
 @click.option("--verbose", "-v", is_flag=True, help="Show full agent reasoning.")
+@click.option(
+    "--aws-region", default="", help="AWS region to scan for live resources (e.g. eu-west-1)."
+)
+@click.option("--aws-profile", default="", help="AWS CLI profile name.")
+@click.option(
+    "--aws-regions", default="", help="Comma-separated AWS regions for multi-region scan."
+)
 def analyze(
     repo: str,
     github_url: str,
@@ -63,6 +123,9 @@ def analyze(
     api_key: str,
     max_turns: int,
     verbose: bool,
+    aws_region: str,
+    aws_profile: str,
+    aws_regions: str,
 ) -> None:
     """Analyse a K8s Git repository and generate an observability plan.
 
@@ -70,6 +133,8 @@ def analyze(
     Use --github to clone a remote repository instead.
     """
     _configure_logging(verbose)
+
+    aws_region_list = [r.strip() for r in aws_regions.split(",") if r.strip()] if aws_regions else []
 
     settings = Settings(
         repo_path=repo,
@@ -79,6 +144,9 @@ def analyze(
         model=model,
         max_agent_turns=max_turns,
         verbose=verbose,
+        aws_region=aws_region,
+        aws_profile=aws_profile,
+        aws_regions=aws_region_list,
     )
     if api_key:
         settings.anthropic_api_key = api_key
@@ -92,7 +160,7 @@ def analyze(
     # ── Step 1: Scan ──────────────────────────────────────────────────────
     console.print(Panel("Step 1 / 3  —  Scanning repository", style="bold cyan"))
     try:
-        resources, manifest_files, errors = scan_repository(settings)
+        resources, manifest_files, errors, iac_discovery = scan_repository(settings)
     except FileNotFoundError as exc:
         console.print(f"[red bold]Error:[/red bold] {exc}")
         sys.exit(1)
@@ -104,10 +172,23 @@ def analyze(
     console.print(
         f"  Found [green]{len(resources)}[/green] resources in {len(manifest_files)} manifest files."
     )
+    if iac_discovery and iac_discovery.resources:
+        console.print(
+            f"  Found [green]{len(iac_discovery.resources)}[/green] IaC resources "
+            f"({', '.join(f'{k}={v}' for k, v in iac_discovery.summary().items())})"
+        )
 
-    # ── Step 2: Analyse ───────────────────────────────────────────────────
+    # ── AWS Discovery (optional) ───────────────────────────────────────────
+    aws_disc = None
+    if aws_region or aws_region_list:
+        aws_disc = _run_aws_discovery(settings)
+
+    # ── Step 2: Analyse ─────────────────────────────────────────────
     console.print(Panel("Step 2 / 3  —  Running AI analysis", style="bold cyan"))
-    platform = build_platform(resources, manifest_files, errors, repo_path=repo)
+    platform = build_platform(
+        resources, manifest_files, errors,
+        repo_path=repo, iac_discovery=iac_discovery, aws_discovery=aws_disc,
+    )
 
     if verbose:
         console.print(platform_report(platform))
@@ -131,23 +212,38 @@ def analyze(
 )
 @click.option("--branch", default="main", help="Git branch to checkout.")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output.")
+@click.option(
+    "--aws-region", default="", help="AWS region to scan for live resources (e.g. eu-west-1)."
+)
+@click.option("--aws-profile", default="", help="AWS CLI profile name.")
+@click.option(
+    "--aws-regions", default="", help="Comma-separated AWS regions for multi-region scan."
+)
 def scan(
     repo: str,
     github_url: str,
     branch: str,
     verbose: bool,
+    aws_region: str,
+    aws_profile: str,
+    aws_regions: str,
 ) -> None:
     """Scan a repository and print a platform summary (no AI analysis)."""
     _configure_logging(verbose)
+
+    aws_region_list = [r.strip() for r in aws_regions.split(",") if r.strip()] if aws_regions else []
 
     settings = Settings(
         repo_path=repo,
         github_url=github_url,
         branch=branch,
+        aws_region=aws_region,
+        aws_profile=aws_profile,
+        aws_regions=aws_region_list,
     )
 
     try:
-        resources, manifest_files, errors = scan_repository(settings)
+        resources, manifest_files, errors, iac_discovery = scan_repository(settings)
     except FileNotFoundError as exc:
         console.print(f"[red bold]Error:[/red bold] {exc}")
         sys.exit(1)
@@ -156,7 +252,14 @@ def scan(
         console.print("[yellow]No Kubernetes resources found.[/yellow]")
         sys.exit(0)
 
-    platform = build_platform(resources, manifest_files, errors, repo_path=repo)
+    aws_disc = None
+    if aws_region or aws_region_list:
+        aws_disc = _run_aws_discovery(settings)
+
+    platform = build_platform(
+        resources, manifest_files, errors,
+        repo_path=repo, iac_discovery=iac_discovery, aws_discovery=aws_disc,
+    )
     console.print(platform_report(platform))
 
 

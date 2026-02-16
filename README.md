@@ -9,6 +9,7 @@ Unlike generic "add CPU/memory alerts" tools, this agent **fingerprints your wor
 ### 1. Detect infrastructure from code
 
 - **Scans** a Git repository for Kubernetes manifests (Deployments, Services, StatefulSets, Ingresses, ConfigMaps, etc.)
+- **Analyses Infrastructure-as-Code** — parses Terraform, Helm, Kustomize, and Pulumi to discover managed databases, caches, message queues, and other cloud resources that need monitoring
 - **Classifies** every container image into a technology profile using evidence accumulation — image regex, ports, environment variables, and Kubernetes labels all contribute a weighted confidence score
 - **Analyses** the platform — discovers resource relationships (Service→Deployment, Ingress→Service, HPA→target), identifies health/monitoring gaps including missing exporters
 
@@ -33,7 +34,15 @@ Unlike generic "add CPU/memory alerts" tools, this agent **fingerprints your wor
 - **Diagnoses** issues using pod logs, events, and cluster state
 - **Reports** exactly what was fixed and what still needs attention
 
-### 5. HTML report served in-cluster
+### 5. Discover live AWS infrastructure
+
+- **Connects** to an AWS account via boto3 (optional dependency)
+- **Discovers** RDS, ElastiCache, MSK, SQS, SNS, Lambda, ECS, EKS, OpenSearch, DynamoDB, and S3 resources
+- **Maps** each resource to an observability archetype with monitoring recommendations
+- **Supports** multi-region scanning and service filtering
+- **Feeds** discovered infrastructure into the agent for monitoring plan generation
+
+### 6. HTML report served in-cluster
 
 - **Renders** a styled HTML validation report from the agent's findings using Jinja2
 - **Deploys** the report as an nginx pod in the `observability-report` namespace
@@ -101,7 +110,13 @@ PostgreSQL detected (score: 0.95)
 pip install -e .
 ```
 
-Or with dev dependencies:
+With AWS discovery support:
+
+```bash
+pip install -e ".[aws]"
+```
+
+With dev dependencies:
 
 ```bash
 pip install -e ".[dev]"
@@ -113,6 +128,8 @@ pip install -e ".[dev]"
 - An [Anthropic API key](https://console.anthropic.com/)
 - For live cluster validation: `kubectl` configured and pointing at a cluster
 - For HTTPS endpoints with custom CA: the CA certificate file (e.g. `tls/ca.crt` from your cluster setup)
+- For AWS discovery: `boto3` and configured AWS credentials (`aws configure` or environment variables)
+- For IaC analysis: `python-hcl2` (included in base dependencies). Optionally `helm` and `kubectl` CLIs for rendering Helm/Kustomize templates
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
@@ -131,6 +148,12 @@ k8s-obs analyze --github https://github.com/org/repo --branch main
 
 # Customise output
 k8s-obs analyze /path/to/repo -o ./my-output --model claude-sonnet-4-20250514 -v
+
+# Include live AWS resources in the analysis
+k8s-obs analyze /path/to/repo --aws-region eu-west-1
+
+# Multi-region AWS scan
+k8s-obs analyze /path/to/repo --aws-regions eu-west-1,us-east-1 --aws-profile prod
 ```
 
 ### Scan only (no AI, just platform summary)
@@ -138,6 +161,9 @@ k8s-obs analyze /path/to/repo -o ./my-output --model claude-sonnet-4-20250514 -v
 ```bash
 k8s-obs scan /path/to/k8s-repo
 k8s-obs scan --github https://github.com/org/repo
+
+# Scan with AWS resource discovery
+k8s-obs scan /path/to/repo --aws-region eu-west-1
 ```
 
 ### Validate on a live cluster
@@ -183,8 +209,8 @@ k8s-obs validate --help
 
 | Command | Purpose | Requires API key | Requires cluster |
 |---------|---------|:---:|:---:|
-| `analyze` | Scan repo + AI analysis → generate monitoring configs | Yes | No |
-| `scan` | Scan repo → print platform summary | No | No |
+| `analyze` | Scan repo + IaC + AI analysis → generate monitoring configs | Yes | No |
+| `scan` | Scan repo + IaC → print platform summary | No | No |
 | `validate` | Connect to cluster → test observability → fix issues | Yes | Yes |
 
 ### Validate CLI options
@@ -204,6 +230,42 @@ k8s-obs validate --help
 | `--max-turns` | `40` | Maximum agent reasoning turns |
 | `-o` / `--output` | `observability-output` | Output directory |
 | `-v` / `--verbose` | `false` | Show full agent reasoning |
+| `--aws-region` | *(none)* | AWS region for live resource discovery (e.g. `eu-west-1`) |
+| `--aws-profile` | *(default)* | AWS CLI profile name |
+| `--aws-regions` | *(none)* | Comma-separated AWS regions for multi-region scan |
+
+## IaC Analysis
+
+The scanner automatically detects and parses Infrastructure-as-Code in the repository:
+
+| Format | Files detected | What's extracted |
+|--------|---------------|------------------|
+| **Terraform** | `*.tf` | Resources, providers, archetypes (40+ resource types mapped) |
+| **Helm** | `Chart.yaml`, `values.yaml` | Charts, dependencies, image references, rendered templates |
+| **Kustomize** | `kustomization.yaml` | Overlays, patches, Helm chart generators |
+| **Pulumi** | `Pulumi.yaml` + program files | Resource constructors (Python, TypeScript, Go) |
+
+Infrastructure resources (databases, caches, queues) are mapped to observability archetypes and include monitoring recommendations. When `helm` or `kubectl` binaries are available, the parsers render full K8s manifests from chart templates and Kustomize overlays.
+
+## AWS Discovery
+
+With `--aws-region` or `--aws-regions`, the agent connects to AWS and discovers running infrastructure:
+
+| Service | Resource types |
+|---------|---------------|
+| **RDS** | DB instances, Aurora clusters |
+| **ElastiCache** | Redis replication groups, Memcached clusters |
+| **MSK** | Kafka clusters (provisioned & serverless) |
+| **SQS** | Queues (with DLQ detection) |
+| **SNS** | Topics |
+| **Lambda** | Functions |
+| **ECS** | Clusters and services |
+| **EKS** | Kubernetes clusters |
+| **OpenSearch** | Domains |
+| **DynamoDB** | Tables |
+| **S3** | Buckets (region-filtered) |
+
+Each resource is mapped to an archetype with monitoring notes (exporter recommendations, CloudWatch metrics, dashboard IDs). Install the optional dependency: `pip install -e ".[aws]"`
 
 ## Output
 
@@ -222,16 +284,19 @@ The agent writes to the output directory (default: `observability-output/`):
 ```
 k8s_observability_agent/
   cli.py          # Click CLI — analyze, scan, validate commands
-  config.py       # Settings & configuration (repo + cluster)
-  models.py       # Pydantic models for K8s resources, plans, & validation reports
+  config.py       # Settings & configuration (repo + cluster + AWS)
+  models.py       # Pydantic models for K8s, IaC, AWS, plans, & validation reports
   scanner.py      # Git repo scanning & K8s manifest parsing
   classifier.py   # Workload fingerprinting (archetype → profile → metrics)
   analyzer.py     # Platform relationship analysis & gap detection
+  iac.py          # IaC parsers — Terraform, Helm, Kustomize, Pulumi
+  aws.py          # Live AWS resource discovery via boto3
   core.py         # Claude agent loops (analyze + validate)
   renderer.py     # Jinja2 template rendering for outputs
   cluster.py      # Kubernetes cluster interaction via kubectl
   prometheus.py   # Prometheus HTTP API client
   grafana.py      # Grafana HTTP API client
+  history.py      # SQLite-backed validation run history
   tools/
     registry.py   # Repo-analysis tool definitions for the agent
     live.py       # Live-cluster tool definitions for the validation agent
@@ -247,6 +312,9 @@ tests/
   test_analyzer.py      # Analyzer tests
   test_tools.py         # Repo tool registry tests
   test_renderer.py      # Renderer tests
+  test_iac.py           # IaC parser tests (56 tests)
+  test_aws.py           # AWS discovery tests (21 tests)
+  test_history.py       # Validation history tests
   test_cluster.py       # Cluster client tests
   test_prometheus.py    # Prometheus client tests
   test_grafana.py       # Grafana client tests
@@ -260,17 +328,19 @@ tests/
 ┌────────────────────────────────────────┐   ┌──────────────────────────────────────┐
 │                                        │   │                                      │
 │ Git Repo → Scanner → Classifier →      │   │ kubectl → Discover Prometheus/Grafana│
-│            Analyzer → LLM Agent →      │   │        → Check scrape targets        │
-│            Renderer → Output files     │   │        → Validate metrics & alerts    │
-│                                        │   │        → Import dashboards            │
-│ Tools: list_resources, get_insights,   │   │        → Deploy fixes (if --allow)    │
-│        check_gaps, generate_plan       │   │        → Validation report            │
-│                                        │   │                                      │
-│ Output: prometheus-rules.yml           │   │ Tools: check_connectivity, find_stack,│
-│         grafana-dashboard-*.json       │   │        check_scrape_targets,          │
-│         observability-plan.md          │   │        validate_metric_exists,        │
+│          → IaC Parser (TF/Helm/...) →  │   │        → Check scrape targets        │
+│          → AWS Discovery (boto3) →     │   │        → Validate metrics & alerts    │
+│            Analyzer → LLM Agent →      │   │        → Import dashboards            │
+│            Renderer → Output files     │   │        → Deploy fixes (if --allow)    │
+│                                        │   │        → Validation report            │
+│ Tools: list_resources, get_insights,   │   │                                      │
+│        check_gaps, get_iac_resources,  │   │ Tools: check_connectivity, find_stack,│
+│        get_aws_resources,              │   │        check_scrape_targets,          │
+│        generate_plan                   │   │        validate_metric_exists,        │
 │                                        │   │        import_grafana_dashboard,      │
-│                                        │   │        apply_kubernetes_manifest, ... │
+│ Output: prometheus-rules.yml           │   │        apply_kubernetes_manifest, ... │
+│         grafana-dashboard-*.json       │   │                                      │
+│         observability-plan.md          │   │                                      │
 └────────────────────────────────────────┘   └──────────────────────────────────────┘
 ```
 
@@ -293,6 +363,8 @@ The agent uses Claude's tool-calling capability in two agentic loops:
 | `get_platform_summary` | High-level platform overview with resource counts |
 | `check_health_gaps` | Missing probes, resource limits, orphaned selectors, **missing exporters** |
 | `get_workload_insights` | **Key tool** — returns golden metrics, alert rules, exporter requirements, community dashboard IDs, and nodata calibration per classified workload |
+| `get_iac_resources` | IaC resources (Terraform, Helm, Kustomize, Pulumi) with archetypes and monitoring notes |
+| `get_aws_resources` | Live AWS resources (RDS, ElastiCache, MSK, Lambda, etc.) with monitoring recommendations |
 | `generate_observability_plan` | Submit the final structured plan |
 
 ### Validate mode (live cluster)
@@ -325,8 +397,8 @@ The agent uses Claude's tool-calling capability in two agentic loops:
 ## Development
 
 ```bash
-pip install -e ".[dev]"
-pytest                     # 196 tests
+pip install -e ".[dev,aws]"
+pytest                     # 287 tests
 ruff check . && ruff format --check .
 ```
 
@@ -338,7 +410,7 @@ ruff check . && ruff format --check .
 git clone https://github.com/emilpeychev/k8s-observability-agent.git
 cd k8s-observability-agent
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev,aws]"
 ```
 
 ### 2. Set your API key

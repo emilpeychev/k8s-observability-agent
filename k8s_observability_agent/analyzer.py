@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from k8s_observability_agent.models import K8sResource, Platform, ServiceRelationship
+from k8s_observability_agent.models import AwsDiscovery, K8sResource, IaCDiscovery, Platform, ServiceRelationship
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,8 @@ def build_platform(
     manifest_files: list[str],
     errors: list[str],
     repo_path: str = "",
+    iac_discovery: IaCDiscovery | None = None,
+    aws_discovery: AwsDiscovery | None = None,
 ) -> Platform:
     """Build a complete Platform model from scanned resources."""
     relationships = build_relationships(resources)
@@ -100,6 +102,8 @@ def build_platform(
         namespaces=namespaces,
         manifest_files=manifest_files,
         errors=errors,
+        iac_discovery=iac_discovery,
+        aws_discovery=aws_discovery,
     )
     logger.info(
         "Platform built: %d resources, %d relationships, %d namespaces",
@@ -187,6 +191,54 @@ def platform_report(platform: Platform) -> str:
         lines.append("-" * 60)
         for err in platform.errors:
             lines.append(f"  ⚠ {err}")
+
+    # IaC Discovery
+    if platform.iac_discovery and platform.iac_discovery.resources:
+        iac = platform.iac_discovery
+        lines.append("")
+        lines.append("-" * 60)
+        lines.append("INFRASTRUCTURE AS CODE")
+        lines.append("-" * 60)
+        for source_name, count in iac.summary().items():
+            lines.append(f"  {source_name:<20s} {count} resources")
+        lines.append("")
+        for r in iac.resources:
+            arch_str = f"  [{r.archetype}]" if r.archetype else ""
+            lines.append(f"  {r.source.value}:{r.resource_type}/{r.name}{arch_str}")
+            for note in r.monitoring_notes:
+                lines.append(f"    → {note}")
+        if iac.helm_releases:
+            lines.append("")
+            lines.append("  Helm releases:")
+            for hr in iac.helm_releases:
+                lines.append(f"    chart={hr.get('chart', '?')}  repo={hr.get('repository', '')}")
+        if iac.files_scanned:
+            lines.append("")
+            lines.append(f"  IaC files scanned: {len(iac.files_scanned)}")
+
+    # AWS Discovery
+    if platform.aws_discovery and platform.aws_discovery.resources:
+        aws = platform.aws_discovery
+        lines.append("")
+        lines.append("-" * 60)
+        lines.append("AWS LIVE RESOURCES")
+        lines.append("-" * 60)
+        regions = aws.regions_scanned or ([aws.region] if aws.region else ["(default)"])
+        lines.append(f"  Regions scanned: {', '.join(regions)}")
+        for rtype, count in sorted(aws.summary().items()):
+            lines.append(f"  {rtype:<35s} {count}")
+        lines.append("")
+        for r in aws.resources:
+            status = r.properties.get("status", "")
+            status_str = f"  status={status}" if status else ""
+            arch_str = f"  [{r.archetype}]" if r.archetype else ""
+            lines.append(f"  {r.resource_type}/{r.name}{arch_str}{status_str}")
+            for note in r.monitoring_notes:
+                lines.append(f"    \u2192 {note}")
+        if aws.errors:
+            lines.append("")
+            for err in aws.errors[:5]:
+                lines.append(f"  \u26a0 {err}")
 
     lines.append("")
     return "\n".join(lines)
