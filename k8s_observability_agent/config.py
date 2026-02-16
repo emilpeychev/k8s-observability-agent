@@ -54,6 +54,32 @@ class Settings(BaseModel):
         ],
     )
 
+    # ── Cluster / validation settings ────────────────────────────────
+    kubeconfig: str = Field(
+        default="",
+        description="Path to kubeconfig file. Empty = use default (~/.kube/config).",
+    )
+    kube_context: str = Field(
+        default="",
+        description="Kubernetes context to use. Empty = current context.",
+    )
+    prometheus_url: str = Field(
+        default="",
+        description="Prometheus URL (e.g. http://localhost:9090). Empty = auto-discover.",
+    )
+    grafana_url: str = Field(
+        default="",
+        description="Grafana URL (e.g. http://localhost:3000). Empty = auto-discover.",
+    )
+    grafana_api_key: str = Field(
+        default_factory=lambda: os.environ.get("GRAFANA_API_KEY", ""),
+        description="Grafana API key or service-account token.",
+    )
+    allow_writes: bool = Field(
+        default=False,
+        description="Allow the agent to apply manifests to the cluster.",
+    )
+
     @property
     def resolved_output_dir(self) -> Path:
         return Path(self.output_dir).resolve()

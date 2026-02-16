@@ -45,6 +45,22 @@ Panels:
 
 ---
 
+{% if plan.dashboard_recommendations %}
+## Recommended Grafana Dashboards (ready to import)
+
+Import these battle-tested community dashboards from grafana.com instead of building from scratch.
+
+| ID | Dashboard | Archetype | Import URL |
+|----|-----------|-----------|------------|
+{% for rec in plan.dashboard_recommendations %}
+| {{ rec.dashboard_id }} | {{ rec.title }} | {{ rec.archetype }} | [Import]({{ rec.url }}) |
+{% endfor %}
+
+**How to import:** Grafana → Dashboards → Import → Enter the dashboard ID → Select your Prometheus data source → Import.
+
+---
+
+{% endif %}
 ## Recommendations
 
 {% for rec in plan.recommendations %}

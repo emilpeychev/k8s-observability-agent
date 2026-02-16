@@ -1,18 +1,37 @@
 # k8s-observability-agent
 
-AI-powered agent that reverse-engineers Kubernetes platforms from Git repositories and designs comprehensive, **technology-specific** observability solutions.
+AI-powered agent that replaces an observability engineer. It scans Git repositories to detect infrastructure, proposes battle-tested dashboards, validates everything on a live cluster, and fixes what's broken.
 
 Unlike generic "add CPU/memory alerts" tools, this agent **fingerprints your workloads** — it knows that a PostgreSQL StatefulSet needs replication-lag alerts and WAL archive panels, while a Kafka cluster needs consumer-lag tracking and under-replicated partition alerts. The difference between generic and intelligent observability output comes from the classification layer, not the LLM.
 
 ## What it does
 
-1. **Scans** a Git repository for Kubernetes manifests (Deployments, Services, StatefulSets, Ingresses, ConfigMaps, etc.)
-2. **Classifies** every container image into a technology profile using evidence accumulation — image regex, ports, environment variables, and Kubernetes labels all contribute a weighted confidence score
-3. **Analyses** the platform — discovers resource relationships (Service→Deployment, Ingress→Service, HPA→target), identifies health/monitoring gaps including missing exporters
-4. **Generates** a tailored observability plan using Claude AI, including:
-   - Prometheus alerting rules (`.yml`) — technology-specific, not generic
-   - Grafana dashboard definitions (`.json`) — grouped by archetype
-   - A human-readable Markdown summary with best-practice recommendations
+### 1. Detect infrastructure from code
+
+- **Scans** a Git repository for Kubernetes manifests (Deployments, Services, StatefulSets, Ingresses, ConfigMaps, etc.)
+- **Classifies** every container image into a technology profile using evidence accumulation — image regex, ports, environment variables, and Kubernetes labels all contribute a weighted confidence score
+- **Analyses** the platform — discovers resource relationships (Service→Deployment, Ingress→Service, HPA→target), identifies health/monitoring gaps including missing exporters
+
+### 2. Propose dashboards and alerting
+
+- **Recommends ready-made community Grafana dashboards** from grafana.com for each detected workload type — no need to build panels from scratch
+- **Generates** technology-specific Prometheus alerting rules with **nodata calibration** — each alert has an appropriate `nodata_state` (`ok`, `alerting`, or `nodata`) based on how critical the metric is
+- **Produces** a human-readable Markdown summary with best-practice recommendations
+
+### 3. Test on a live cluster
+
+- **Connects** to a Kubernetes cluster via kubectl
+- **Auto-discovers** Prometheus and Grafana instances in the cluster
+- **Validates** scrape targets are healthy, metrics exist, alert expressions evaluate correctly
+- **Imports** recommended community dashboards into Grafana
+- **Generates** a validation report with pass/fail/warn checks
+
+### 4. Fix what's broken
+
+- **Deploys** missing exporters and ServiceMonitors (with `--allow-writes`)
+- **Applies** Prometheus rules and Grafana datasource configuration
+- **Diagnoses** issues using pod logs, events, and cluster state
+- **Reports** exactly what was fixed and what still needs attention
 
 ## Workload Classification
 
@@ -84,6 +103,7 @@ pip install -e ".[dev]"
 
 - Python 3.11+
 - An [Anthropic API key](https://console.anthropic.com/)
+- For live cluster validation: `kubectl` configured and pointing at a cluster
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
@@ -111,20 +131,39 @@ k8s-obs scan /path/to/k8s-repo
 k8s-obs scan --github https://github.com/org/repo
 ```
 
-### CLI options
+### Validate on a live cluster
+
+```bash
+# Auto-discover Prometheus & Grafana in the cluster
+k8s-obs validate
+
+# Use explicit URLs (e.g. via port-forward)
+k8s-obs validate --prometheus-url http://localhost:9090 --grafana-url http://localhost:3000
+
+# Validate a previously generated plan
+k8s-obs validate --plan observability-output/plan.json
+
+# Allow the agent to apply fixes (deploy exporters, import dashboards, etc.)
+k8s-obs validate --allow-writes
+
+# Full pipeline: scan repo, then validate on cluster
+k8s-obs analyze ./my-repo -o output/
+k8s-obs validate --plan output/plan.json --allow-writes
+```
+
+### CLI reference
 
 ```
 k8s-obs analyze --help
-
-Options:
-  --github TEXT       Clone from a GitHub URL instead of a local path
-  --branch TEXT       Git branch to checkout (default: main)
-  -o, --output TEXT   Output directory (default: observability-output)
-  --model TEXT        Anthropic model to use
-  --api-key TEXT      Anthropic API key (or set ANTHROPIC_API_KEY)
-  --max-turns INT     Maximum agent reasoning turns (default: 30)
-  -v, --verbose       Show full agent reasoning
+k8s-obs scan --help
+k8s-obs validate --help
 ```
+
+| Command | Purpose | Requires API key | Requires cluster |
+|---------|---------|:---:|:---:|
+| `analyze` | Scan repo + AI analysis → generate monitoring configs | Yes | No |
+| `scan` | Scan repo → print platform summary | No | No |
+| `validate` | Connect to cluster → test observability → fix issues | Yes | Yes |
 
 ## Output
 
@@ -132,60 +171,78 @@ The agent writes to the output directory (default: `observability-output/`):
 
 | File | Description |
 |------|-------------|
-| `prometheus-rules.yml` | Prometheus alerting rules — technology-specific PromQL |
+| `prometheus-rules.yml` | Prometheus alerting rules — technology-specific PromQL with nodata calibration |
 | `grafana-*.json` | Grafana dashboard JSON definitions grouped by archetype |
-| `observability-plan.md` | Human-readable summary with all recommendations |
+| `observability-plan.md` | Human-readable summary with dashboard recommendations and action items |
+| `validation_report.json` | *(validate only)* Structured validation report with pass/fail checks |
 
 ## Architecture
 
 ```
-agent/
-  cli.py          # Click CLI entry-point (k8s-obs command)
-  config.py       # Settings & configuration
-  models.py       # Pydantic models for K8s resources & observability plans
+k8s_observability_agent/
+  cli.py          # Click CLI — analyze, scan, validate commands
+  config.py       # Settings & configuration (repo + cluster)
+  models.py       # Pydantic models for K8s resources, plans, & validation reports
   scanner.py      # Git repo scanning & K8s manifest parsing
-  classifier.py   # Workload fingerprinting engine (archetype → profile → metrics)
+  classifier.py   # Workload fingerprinting (archetype → profile → metrics)
   analyzer.py     # Platform relationship analysis & gap detection
-  core.py         # Claude agent loop with tool calling
+  core.py         # Claude agent loops (analyze + validate)
   renderer.py     # Jinja2 template rendering for outputs
+  cluster.py      # Kubernetes cluster interaction via kubectl
+  prometheus.py   # Prometheus HTTP API client
+  grafana.py      # Grafana HTTP API client
   tools/
-    registry.py   # Tool definitions & implementations for the agent
+    registry.py   # Repo-analysis tool definitions for the agent
+    live.py       # Live-cluster tool definitions for the validation agent
   templates/
     prometheus_rules.yml.j2
     grafana_dashboard.json.j2
     plan_summary.md.j2
+    validation_report.md.j2
 tests/
-  conftest.py           # Shared fixtures
   test_models.py        # Model unit tests
   test_scanner.py       # Scanner tests
-  test_classifier.py    # Classifier tests (knowledge system validation)
+  test_classifier.py    # Classifier tests (knowledge system)
   test_analyzer.py      # Analyzer tests
-  test_tools.py         # Tool registry tests
+  test_tools.py         # Repo tool registry tests
   test_renderer.py      # Renderer tests
+  test_cluster.py       # Cluster client tests
+  test_prometheus.py    # Prometheus client tests
+  test_grafana.py       # Grafana client tests
+  test_live_tools.py    # Live-cluster tool tests
 ```
 
 ### Pipeline
 
 ```
-Git Repo → Scanner → Classifier → Analyzer → LLM Agent → Renderer → Output
-              ↓           ↓           ↓           ↓
-          K8s manifests  Archetype   Relationships  Observability
-          parsed         profiles    & gaps         plan (structured)
-                         assigned    detected       
+                 ANALYZE (offline)                        VALIDATE (live cluster)
+┌────────────────────────────────────────┐   ┌──────────────────────────────────────┐
+│                                        │   │                                      │
+│ Git Repo → Scanner → Classifier →      │   │ kubectl → Discover Prometheus/Grafana│
+│            Analyzer → LLM Agent →      │   │        → Check scrape targets        │
+│            Renderer → Output files     │   │        → Validate metrics & alerts    │
+│                                        │   │        → Import dashboards            │
+│ Tools: list_resources, get_insights,   │   │        → Deploy fixes (if --allow)    │
+│        check_gaps, generate_plan       │   │        → Validation report            │
+│                                        │   │                                      │
+│ Output: prometheus-rules.yml           │   │ Tools: check_connectivity, find_stack,│
+│         grafana-dashboard-*.json       │   │        check_scrape_targets,          │
+│         observability-plan.md          │   │        validate_metric_exists,        │
+│                                        │   │        import_grafana_dashboard,      │
+│                                        │   │        apply_kubernetes_manifest, ... │
+└────────────────────────────────────────┘   └──────────────────────────────────────┘
 ```
-
-The classifier is the **sensor** — if it's wrong, the LLM reasons on false facts and produces polished but incorrect output. The classifier tests validate that the system interprets infrastructure the same way a human SRE would.
 
 ## How the agent works
 
-The agent uses Claude's tool-calling capability in an agentic loop:
+The agent uses Claude's tool-calling capability in two agentic loops:
+
+### Analyze mode (offline)
 
 1. The platform summary is sent as context to Claude
 2. Claude calls tools to explore resources, check gaps, and retrieve **archetype-specific observability knowledge**
 3. After thorough analysis, Claude calls `generate_observability_plan` with structured data
 4. The structured plan is rendered into Prometheus rules, Grafana dashboards, and a Markdown report
-
-Available tools for the agent:
 
 | Tool | Purpose |
 |------|---------|
@@ -194,16 +251,41 @@ Available tools for the agent:
 | `get_relationships` | View Service→Deployment, Ingress→Service, HPA→target mappings |
 | `get_platform_summary` | High-level platform overview with resource counts |
 | `check_health_gaps` | Missing probes, resource limits, orphaned selectors, **missing exporters** |
-| `get_workload_insights` | **Key tool** — returns golden metrics, alert rules, exporter requirements, and recommendations per classified workload |
+| `get_workload_insights` | **Key tool** — returns golden metrics, alert rules, exporter requirements, community dashboard IDs, and nodata calibration per classified workload |
 | `generate_observability_plan` | Submit the final structured plan |
 
-The LLM's system prompt instructs it to modulate output based on classification **score** — high-confidence workloads get technology-specific alerts, low-confidence ones get generic Kubernetes metrics with a recommendation to verify.
+### Validate mode (live cluster)
+
+1. The agent connects to the cluster and discovers Prometheus/Grafana
+2. It validates scrape targets, checks metric existence, tests alert expressions
+3. It imports recommended community dashboards into Grafana
+4. With `--allow-writes`, it deploys missing exporters and ServiceMonitors
+5. It generates a structured validation report with pass/fail/warn checks
+
+| Tool | Purpose |
+|------|---------|
+| `check_cluster_connectivity` | Verify cluster is reachable |
+| `find_monitoring_stack` | Auto-discover Prometheus and Grafana services |
+| `get_cluster_resources` | List live K8s resources by kind/namespace/label |
+| `describe_cluster_resource` | Show resource status, events, conditions |
+| `get_pod_logs` | Fetch recent logs for diagnosing issues |
+| `get_cluster_events` | Spot CrashLoopBackOff, pull errors, etc. |
+| `check_scrape_targets` | Prometheus target health per job |
+| `validate_metric_exists` | Batch check whether metrics exist in Prometheus |
+| `run_promql_query` | Execute arbitrary PromQL to test alert expressions |
+| `get_prometheus_alerts` | Currently firing/pending alerts |
+| `get_prometheus_rules` | Configured alerting/recording rules |
+| `list_grafana_dashboards` | Dashboards installed in Grafana |
+| `check_grafana_datasources` | Verify Prometheus datasource is configured |
+| `import_grafana_dashboard` | Import a community dashboard by grafana.com ID |
+| `apply_kubernetes_manifest` | Deploy manifests (exporters, ServiceMonitors) — requires `--allow-writes` |
+| `generate_validation_report` | Submit the final validation report |
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest                     # 106 tests
+pytest                     # 196 tests
 ruff check . && ruff format --check .
 ```
 
@@ -311,6 +393,36 @@ k8s-obs scan ./deploy/staging/
 ```bash
 k8s-obs analyze ./infra --model claude-sonnet-4-20250514
 ```
+
+### 8. Validate on a live cluster
+
+After generating a plan, validate that everything actually works:
+
+```bash
+# Port-forward Prometheus and Grafana
+kubectl port-forward -n monitoring svc/prometheus 9090:9090 &
+kubectl port-forward -n monitoring svc/grafana 3000:3000 &
+
+# Validate with the generated plan
+k8s-obs validate \
+  --plan observability-output/plan.json \
+  --prometheus-url http://localhost:9090 \
+  --grafana-url http://localhost:3000
+
+# Let the agent fix issues it finds
+k8s-obs validate \
+  --plan observability-output/plan.json \
+  --prometheus-url http://localhost:9090 \
+  --grafana-url http://localhost:3000 \
+  --allow-writes
+```
+
+The validation report shows:
+- Which scrape targets are up/down
+- Which expected metrics are present/missing
+- Whether alert expressions evaluate correctly
+- Which dashboards were imported
+- What fixes were applied
 
 ## License
 

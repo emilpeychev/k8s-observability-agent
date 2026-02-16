@@ -37,6 +37,22 @@ ARCHETYPE_CUSTOM_APP = "custom-app"
 
 
 @dataclass(frozen=True)
+class GrafanaDashboardRef:
+    """Reference to a ready-made Grafana community dashboard."""
+
+    dashboard_id: int  # grafana.com dashboard ID
+    title: str
+    description: str = ""
+    url: str = ""  # auto-populated if empty
+
+    def __post_init__(self) -> None:
+        if not self.url:
+            object.__setattr__(
+                self, "url", f"https://grafana.com/grafana/dashboards/{self.dashboard_id}/"
+            )
+
+
+@dataclass(frozen=True)
 class MetricSignal:
     """A specific metric an operator should collect for this archetype."""
 
@@ -57,6 +73,7 @@ class AlertSignal:
     for_duration: str = "5m"
     summary: str = ""
     requires: str = ""  # deployment prerequisite, e.g. "replicas>1", "statefulset"
+    nodata_state: str = "ok"  # what to do when metric is absent: "ok", "alerting", "nodata"
 
 
 @dataclass(frozen=True)
@@ -72,6 +89,7 @@ class ArchetypeProfile:
     exporter_port: int = 0
     golden_metrics: list[MetricSignal] = field(default_factory=list)
     alerts: list[AlertSignal] = field(default_factory=list)
+    grafana_dashboards: list[GrafanaDashboardRef] = field(default_factory=list)
     dashboard_tags: list[str] = field(default_factory=list)
     health_requirements: list[str] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
@@ -139,6 +157,7 @@ _PG_PROFILE = _register(
                 for_duration="5m",
                 summary="PostgreSQL connection count exceeds 80% of max_connections",
                 requires="exporter",
+                nodata_state="ok",
             ),
             AlertSignal(
                 "PostgresReplicationLagHigh",
@@ -147,6 +166,7 @@ _PG_PROFILE = _register(
                 for_duration="5m",
                 summary="PostgreSQL replication lag exceeds 100 MB",
                 requires="exporter,replicas>1",
+                nodata_state="alerting",
             ),
             AlertSignal(
                 "PostgresDeadTuplesHigh",
@@ -155,6 +175,7 @@ _PG_PROFILE = _register(
                 for_duration="15m",
                 summary="High dead tuple count — autovacuum may be falling behind",
                 requires="exporter",
+                nodata_state="ok",
             ),
             AlertSignal(
                 "PostgresCacheHitRatioLow",
@@ -163,7 +184,12 @@ _PG_PROFILE = _register(
                 for_duration="10m",
                 summary="Buffer cache hit ratio below 95% — consider increasing shared_buffers",
                 requires="exporter",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(9628, "PostgreSQL Database", "Comprehensive PostgreSQL monitoring via postgres_exporter"),
+            GrafanaDashboardRef(455, "PostgreSQL Overview", "Percona PMM-style PostgreSQL overview"),
         ],
         dashboard_tags=["postgresql", "database"],
         health_requirements=[
@@ -230,6 +256,7 @@ _MYSQL_PROFILE = _register(
                 for_duration="5m",
                 summary="MySQL connection count exceeds 80% of max_connections",
                 requires="exporter",
+                nodata_state="ok",
             ),
             AlertSignal(
                 "MySQLReplicationLagHigh",
@@ -238,6 +265,7 @@ _MYSQL_PROFILE = _register(
                 for_duration="5m",
                 summary="MySQL replication lag exceeds 30 seconds",
                 requires="exporter,replicas>1",
+                nodata_state="alerting",
             ),
             AlertSignal(
                 "MySQLSlowQueryRateHigh",
@@ -246,7 +274,12 @@ _MYSQL_PROFILE = _register(
                 for_duration="10m",
                 summary="Elevated slow query rate",
                 requires="exporter",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(7362, "MySQL Overview", "MySQL server metrics via mysqld_exporter"),
+            GrafanaDashboardRef(14057, "MySQL Overview (Percona)", "Detailed MySQL monitoring with InnoDB metrics"),
         ],
         dashboard_tags=["mysql", "database"],
         health_requirements=[
@@ -317,6 +350,7 @@ _REDIS_PROFILE = _register(
                 for_duration="5m",
                 summary="Redis memory usage above 90% of maxmemory",
                 requires="exporter",
+                nodata_state="ok",
             ),
             AlertSignal(
                 "RedisEvictionsActive",
@@ -325,6 +359,7 @@ _REDIS_PROFILE = _register(
                 for_duration="10m",
                 summary="Redis is actively evicting keys — memory pressure",
                 requires="exporter",
+                nodata_state="ok",
             ),
             AlertSignal(
                 "RedisHighLatency",
@@ -333,7 +368,12 @@ _REDIS_PROFILE = _register(
                 for_duration="5m",
                 summary="Redis slowlog growing — possible performance degradation",
                 requires="exporter",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(763, "Redis Dashboard", "Redis metrics overview via redis_exporter"),
+            GrafanaDashboardRef(11835, "Redis Dashboard for Prometheus", "Detailed Redis monitoring with hit rate and memory"),
         ],
         dashboard_tags=["redis", "cache"],
         health_requirements=[
@@ -391,6 +431,7 @@ _MONGO_PROFILE = _register(
                 for_duration="5m",
                 summary="MongoDB replica set member lagging behind primary",
                 requires="exporter,replicas>1",
+                nodata_state="alerting",
             ),
             AlertSignal(
                 "MongoDBConnectionsHigh",
@@ -399,7 +440,11 @@ _MONGO_PROFILE = _register(
                 for_duration="5m",
                 summary="MongoDB connection count high",
                 requires="exporter",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(2583, "MongoDB Overview", "MongoDB cluster monitoring via mongodb_exporter"),
         ],
         dashboard_tags=["mongodb", "database"],
         health_requirements=["Deploy mongodb_exporter to expose mongodb_* metrics"],
@@ -459,6 +504,7 @@ _ES_PROFILE = _register(
                 for_duration="1m",
                 summary="Elasticsearch cluster health is RED",
                 requires="exporter",
+                nodata_state="alerting",
             ),
             AlertSignal(
                 "ElasticsearchClusterYellow",
@@ -467,6 +513,7 @@ _ES_PROFILE = _register(
                 for_duration="10m",
                 summary="Elasticsearch cluster health is YELLOW",
                 requires="exporter",
+                nodata_state="ok",
             ),
             AlertSignal(
                 "ElasticsearchJVMHeapHigh",
@@ -475,7 +522,12 @@ _ES_PROFILE = _register(
                 for_duration="5m",
                 summary="Elasticsearch JVM heap usage above 90%",
                 requires="exporter",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(2322, "Elasticsearch Cluster", "ES cluster health, indexing rate, and shard metrics"),
+            GrafanaDashboardRef(6483, "Elasticsearch Cluster Stats", "Detailed cluster statistics and JVM metrics"),
         ],
         dashboard_tags=["elasticsearch", "search"],
         health_requirements=[
@@ -532,6 +584,7 @@ _KAFKA_PROFILE = _register(
                 for_duration="10m",
                 summary="Kafka consumer group lag exceeds 10k messages",
                 requires="exporter",
+                nodata_state="ok",
             ),
             AlertSignal(
                 "KafkaUnderReplicated",
@@ -540,6 +593,7 @@ _KAFKA_PROFILE = _register(
                 for_duration="5m",
                 summary="Kafka has under-replicated partitions — risk of data loss",
                 requires="exporter,replicas>1",
+                nodata_state="alerting",
             ),
             AlertSignal(
                 "KafkaISRShrinking",
@@ -548,7 +602,12 @@ _KAFKA_PROFILE = _register(
                 for_duration="5m",
                 summary="Kafka ISR is shrinking — broker may be unhealthy",
                 requires="exporter,replicas>1",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(7589, "Kafka Overview", "Broker, topic, and consumer group metrics"),
+            GrafanaDashboardRef(12460, "Kafka Exporter Overview", "Consumer lag and partition metrics via kafka_exporter"),
         ],
         dashboard_tags=["kafka", "messaging"],
         health_requirements=[
@@ -598,6 +657,7 @@ _RABBITMQ_PROFILE = _register(
                 severity="warning",
                 for_duration="10m",
                 summary="RabbitMQ queue depth exceeds 10k messages",
+                nodata_state="ok",
             ),
             AlertSignal(
                 "RabbitMQNoConsumers",
@@ -605,6 +665,7 @@ _RABBITMQ_PROFILE = _register(
                 severity="critical",
                 for_duration="5m",
                 summary="RabbitMQ queue has messages but no consumers",
+                nodata_state="alerting",
             ),
             AlertSignal(
                 "RabbitMQHighMemory",
@@ -612,7 +673,12 @@ _RABBITMQ_PROFILE = _register(
                 severity="warning",
                 for_duration="5m",
                 summary="RabbitMQ memory usage above 80% of limit",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(10991, "RabbitMQ Overview", "Queue depth, consumer utilization, and node health"),
+            GrafanaDashboardRef(4279, "RabbitMQ Monitoring", "Detailed RabbitMQ cluster monitoring"),
         ],
         dashboard_tags=["rabbitmq", "messaging"],
         health_requirements=["Enable the rabbitmq_prometheus plugin (ships with RabbitMQ 3.8+)"],
@@ -660,7 +726,11 @@ _NATS_PROFILE = _register(
                 for_duration="5m",
                 summary="NATS has slow consumers — messages may be dropped",
                 requires="exporter",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(2279, "NATS", "NATS server metrics and JetStream monitoring"),
         ],
         dashboard_tags=["nats", "messaging"],
         health_requirements=["Deploy prometheus-nats-exporter sidecar"],
@@ -711,6 +781,7 @@ _NGINX_PROFILE = _register(
                 for_duration="5m",
                 summary="NGINX 5xx error rate exceeds 5%",
                 requires="exporter",
+                nodata_state="ok",
             ),
             AlertSignal(
                 "NginxConnectionsNearLimit",
@@ -719,7 +790,12 @@ _NGINX_PROFILE = _register(
                 for_duration="5m",
                 summary="NGINX active connections approaching worker_connections limit",
                 requires="exporter",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(12708, "NGINX", "NGINX server metrics via nginx-prometheus-exporter"),
+            GrafanaDashboardRef(9614, "NGINX Ingress Controller", "Ingress controller request rate, latency, and errors"),
         ],
         dashboard_tags=["nginx", "web"],
         health_requirements=[
@@ -771,6 +847,7 @@ _ENVOY_PROFILE = _register(
                 severity="warning",
                 for_duration="5m",
                 summary="Envoy p99 latency exceeds 1 second",
+                nodata_state="ok",
             ),
             AlertSignal(
                 "EnvoyCircuitBreakerTripped",
@@ -778,7 +855,12 @@ _ENVOY_PROFILE = _register(
                 severity="critical",
                 for_duration="1m",
                 summary="Envoy circuit breaker is open — upstream is unhealthy",
+                nodata_state="alerting",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(11021, "Envoy Proxy", "Envoy downstream/upstream metrics and circuit breaker state"),
+            GrafanaDashboardRef(7626, "Envoy Dashboard", "Envoy service mesh proxy monitoring"),
         ],
         dashboard_tags=["envoy", "proxy", "service-mesh"],
         health_requirements=["Ensure /stats/prometheus endpoint is not blocked by network policy"],
@@ -816,6 +898,7 @@ _HAPROXY_PROFILE = _register(
                 severity="critical",
                 for_duration="1m",
                 summary="HAProxy backend is completely down",
+                nodata_state="alerting",
             ),
             AlertSignal(
                 "HAProxyQueueBacklog",
@@ -823,7 +906,11 @@ _HAPROXY_PROFILE = _register(
                 severity="warning",
                 for_duration="5m",
                 summary="HAProxy backend queue building up",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(2428, "HAProxy", "HAProxy frontend/backend monitoring via haproxy_exporter"),
         ],
         dashboard_tags=["haproxy", "loadbalancer"],
         health_requirements=["Enable the Prometheus endpoint in haproxy.cfg"],
@@ -864,6 +951,7 @@ _PROM_PROFILE = _register(
                 severity="critical",
                 for_duration="5m",
                 summary="Prometheus scrape target is down",
+                nodata_state="alerting",
             ),
             AlertSignal(
                 "PrometheusTSDBCompactionFailing",
@@ -871,7 +959,11 @@ _PROM_PROFILE = _register(
                 severity="warning",
                 for_duration="15m",
                 summary="Prometheus TSDB compaction failures",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(3662, "Prometheus 2.0 Overview", "Self-monitoring: TSDB, scrape targets, rule evaluation"),
         ],
         dashboard_tags=["prometheus", "monitoring"],
         health_requirements=["Prometheus exposes its own /metrics endpoint by default"],
@@ -910,7 +1002,11 @@ _GRAFANA_PROFILE = _register(
                 severity="warning",
                 for_duration="5m",
                 summary="Grafana datasource errors elevated",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(3590, "Grafana Internal Metrics", "Grafana self-monitoring: API latency and datasource health"),
         ],
         dashboard_tags=["grafana", "monitoring"],
         health_requirements=["Enable built-in Prometheus metrics in grafana.ini"],
@@ -951,6 +1047,7 @@ _FLUENTD_PROFILE = _register(
                 severity="critical",
                 for_duration="5m",
                 summary="Fluentd buffer queue is full — logs may be dropped",
+                nodata_state="alerting",
             ),
             AlertSignal(
                 "FluentdRetryHigh",
@@ -958,7 +1055,11 @@ _FLUENTD_PROFILE = _register(
                 severity="warning",
                 for_duration="10m",
                 summary="Fluentd retry rate elevated — output destination may be unhealthy",
+                nodata_state="ok",
             ),
+        ],
+        grafana_dashboards=[
+            GrafanaDashboardRef(7752, "Fluentd", "Fluentd buffer, retry, and throughput metrics"),
         ],
         dashboard_tags=["fluentd", "logging"],
         health_requirements=["Enable the in_prometheus plugin for fluentd_* metrics"],

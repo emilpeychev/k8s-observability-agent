@@ -275,3 +275,38 @@ class TestProfiles:
             for alert in profile.alerts:
                 assert alert.expr, f"Alert '{alert.name}' in {name} has empty expression"
                 assert alert.name, f"Alert in {name} has empty name"
+
+    def test_all_profiles_have_grafana_dashboards(self) -> None:
+        for name, profile in all_profiles().items():
+            assert len(profile.grafana_dashboards) > 0, (
+                f"Profile '{name}' ({profile.display_name}) has no Grafana dashboard recommendations"
+            )
+
+    def test_grafana_dashboard_refs_have_valid_urls(self) -> None:
+        for name, profile in all_profiles().items():
+            for gd in profile.grafana_dashboards:
+                assert gd.dashboard_id > 0, f"Dashboard ID must be positive in {name}"
+                assert gd.title, f"Dashboard title empty in {name}"
+                assert gd.url.startswith("https://grafana.com/grafana/dashboards/"), (
+                    f"Dashboard URL invalid in {name}: {gd.url}"
+                )
+                assert str(gd.dashboard_id) in gd.url
+
+    def test_alert_nodata_state_valid_values(self) -> None:
+        valid = {"ok", "alerting", "nodata"}
+        for name, profile in all_profiles().items():
+            for alert in profile.alerts:
+                assert alert.nodata_state in valid, (
+                    f"Alert '{alert.name}' in {name} has invalid nodata_state: {alert.nodata_state}"
+                )
+
+    def test_critical_alerts_have_nodata_calibrated(self) -> None:
+        """At least some critical-severity alerts should have nodata_state='alerting'."""
+        alerting_nodata_count = 0
+        for _name, profile in all_profiles().items():
+            for alert in profile.alerts:
+                if alert.severity == "critical" and alert.nodata_state == "alerting":
+                    alerting_nodata_count += 1
+        assert alerting_nodata_count > 0, (
+            "Expected at least one critical alert with nodata_state='alerting'"
+        )

@@ -4,6 +4,7 @@ from k8s_observability_agent.models import (
     AlertRule,
     DashboardPanel,
     DashboardSpec,
+    GrafanaDashboardRecommendation,
     K8sResource,
     MetricRecommendation,
     ObservabilityPlan,
@@ -58,6 +59,7 @@ class TestObservabilityPlan:
         assert plan.metrics == []
         assert plan.alerts == []
         assert plan.dashboards == []
+        assert plan.dashboard_recommendations == []
         assert plan.recommendations == []
 
     def test_plan_with_data(self) -> None:
@@ -77,3 +79,28 @@ class TestObservabilityPlan:
         assert len(plan.alerts) == 1
         assert len(plan.dashboards) == 1
         assert plan.dashboards[0].panels[0].title == "CPU"
+
+    def test_alert_rule_nodata_state_default(self) -> None:
+        alert = AlertRule(alert_name="Test", expr="up == 0")
+        assert alert.nodata_state == "ok"
+
+    def test_alert_rule_nodata_state_alerting(self) -> None:
+        alert = AlertRule(alert_name="Test", expr="up == 0", nodata_state="alerting")
+        assert alert.nodata_state == "alerting"
+
+    def test_dashboard_recommendations(self) -> None:
+        rec = GrafanaDashboardRecommendation(
+            dashboard_id=9628,
+            title="PostgreSQL Database",
+            description="PostgreSQL monitoring",
+            url="https://grafana.com/grafana/dashboards/9628/",
+            resource="default/StatefulSet/db",
+            archetype="database",
+        )
+        plan = ObservabilityPlan(
+            platform_summary="test",
+            dashboard_recommendations=[rec],
+        )
+        assert len(plan.dashboard_recommendations) == 1
+        assert plan.dashboard_recommendations[0].dashboard_id == 9628
+        assert plan.dashboard_recommendations[0].archetype == "database"

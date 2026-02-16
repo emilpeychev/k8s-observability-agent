@@ -334,3 +334,68 @@ class TestExecuteTool:
         result = execute_tool(platform, "get_platform_summary", {})
         assert "Observability Readiness:" in result
         assert "NOT READY:" in result
+
+    def test_workload_insights_includes_grafana_dashboards(self) -> None:
+        """Workload insights should include recommended Grafana dashboard IDs."""
+        from k8s_observability_agent.models import ContainerSpec
+
+        pg_container = ContainerSpec(
+            name="postgres",
+            image="postgres:15",
+            ports=[5432],
+            archetype="database",
+            archetype_display="PostgreSQL",
+            archetype_confidence="high",
+            archetype_score=0.95,
+            archetype_match_source="image",
+        )
+        deploy = K8sResource(
+            api_version="apps/v1",
+            kind="StatefulSet",
+            name="db",
+            namespace="default",
+            replicas=1,
+            source_file="db.yaml",
+            containers=[pg_container],
+            telemetry=["exporter:postgres_exporter"],
+            raw={},
+        )
+        from k8s_observability_agent.analyzer import build_platform
+
+        platform = build_platform([deploy], ["db.yaml"], [])
+        result = execute_tool(platform, "get_workload_insights", {})
+        assert "Recommended Grafana Dashboards" in result
+        assert "9628" in result
+        assert "grafana.com" in result
+
+    def test_workload_insights_shows_nodata_state(self) -> None:
+        """Alerts with nodata_state != 'ok' should show the nodata annotation."""
+        from k8s_observability_agent.models import ContainerSpec
+
+        pg_container = ContainerSpec(
+            name="postgres",
+            image="postgres:15",
+            ports=[5432],
+            archetype="database",
+            archetype_display="PostgreSQL",
+            archetype_confidence="high",
+            archetype_score=0.95,
+            archetype_match_source="image",
+        )
+        deploy = K8sResource(
+            api_version="apps/v1",
+            kind="StatefulSet",
+            name="db",
+            namespace="default",
+            replicas=3,
+            source_file="db.yaml",
+            containers=[pg_container],
+            telemetry=["exporter:postgres_exporter"],
+            raw={},
+        )
+        from k8s_observability_agent.analyzer import build_platform
+
+        platform = build_platform([deploy], ["db.yaml"], [])
+        result = execute_tool(platform, "get_workload_insights", {})
+        # PostgresReplicationLagHigh has nodata_state=alerting
+        assert "nodata\u2192alerting" in result

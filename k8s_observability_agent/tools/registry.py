@@ -115,7 +115,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "generate_observability_plan",
         "description": (
             "Generate the final observability plan including Prometheus alert rules, "
-            "recommended metrics, and Grafana dashboard specifications. "
+            "recommended metrics, Grafana dashboard specifications, and ready-made "
+            "Grafana community dashboard recommendations. "
             "Call this after you have analysed the platform."
         ),
         "input_schema": {
@@ -152,6 +153,17 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                             "summary": {"type": "string"},
                             "description": {"type": "string"},
                             "resource": {"type": "string"},
+                            "nodata_state": {
+                                "type": "string",
+                                "enum": ["ok", "alerting", "nodata"],
+                                "description": (
+                                    "Behaviour when the metric is absent. "
+                                    "'ok' = silence (default for optional/exporter metrics), "
+                                    "'alerting' = fire alert (use for critical infrastructure "
+                                    "where missing data likely means failure), "
+                                    "'nodata' = mark as no-data state."
+                                ),
+                            },
                         },
                         "required": ["alert_name", "expr"],
                     },
@@ -187,6 +199,34 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                             },
                         },
                         "required": ["title", "panels"],
+                    },
+                },
+                "dashboard_recommendations": {
+                    "type": "array",
+                    "description": (
+                        "Ready-made Grafana community dashboards to recommend for import. "
+                        "Use the dashboard IDs and URLs from get_workload_insights."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "dashboard_id": {
+                                "type": "integer",
+                                "description": "grafana.com dashboard ID",
+                            },
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "url": {"type": "string"},
+                            "resource": {
+                                "type": "string",
+                                "description": "Qualified name of the K8s resource",
+                            },
+                            "archetype": {
+                                "type": "string",
+                                "description": "Workload archetype",
+                            },
+                        },
+                        "required": ["dashboard_id", "title"],
                     },
                 },
                 "recommendations": {
@@ -506,16 +546,25 @@ def _get_workload_insights(platform: Platform, qualified_name: str = "") -> str:
             if profile.alerts:
                 lines.append("\n--- Recommended Alerts ---")
                 for a in profile.alerts:
+                    nodata_label = f" [nodata→{a.nodata_state}]" if a.nodata_state != "ok" else ""
                     if a.requires and not _check_requires(a.requires, wl):
-                        lines.append(f"  • {a.name} [{a.severity}] (for: {a.for_duration})")
+                        lines.append(f"  • {a.name} [{a.severity}] (for: {a.for_duration}){nodata_label}")
                         lines.append(f"    expr: {a.expr}")
                         lines.append(f"    summary: {a.summary}")
                         fix = _unmet_reason(a.requires, wl, profile)
                         lines.append(f"    ⚠ CONDITIONAL — not collectable: {fix}")
                     else:
-                        lines.append(f"  • {a.name} [{a.severity}] (for: {a.for_duration})")
+                        lines.append(f"  • {a.name} [{a.severity}] (for: {a.for_duration}){nodata_label}")
                         lines.append(f"    expr: {a.expr}")
                         lines.append(f"    summary: {a.summary}")
+
+            if profile.grafana_dashboards:
+                lines.append("\n--- Recommended Grafana Dashboards (ready to import) ---")
+                for gd in profile.grafana_dashboards:
+                    lines.append(f"  • ID: {gd.dashboard_id} — {gd.title}")
+                    if gd.description:
+                        lines.append(f"    {gd.description}")
+                    lines.append(f"    Import: {gd.url}")
 
             if profile.dashboard_tags:
                 lines.append(f"\nDashboard tags: {', '.join(profile.dashboard_tags)}")

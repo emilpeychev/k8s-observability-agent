@@ -6,6 +6,7 @@ from k8s_observability_agent.models import (
     AlertRule,
     DashboardPanel,
     DashboardSpec,
+    GrafanaDashboardRecommendation,
     MetricRecommendation,
     ObservabilityPlan,
 )
@@ -105,6 +106,80 @@ class TestRenderPlanSummary:
         assert "## Alert Rules" in output
         assert "## Dashboards" in output
         assert "## Recommendations" in output
+
+    def test_dashboard_recommendations_section(self) -> None:
+        plan = _sample_plan()
+        plan.dashboard_recommendations = [
+            GrafanaDashboardRecommendation(
+                dashboard_id=9628,
+                title="PostgreSQL Database",
+                url="https://grafana.com/grafana/dashboards/9628/",
+                archetype="database",
+            ),
+        ]
+        output = render_plan_summary(plan)
+        assert "Recommended Grafana Dashboards" in output
+        assert "9628" in output
+        assert "PostgreSQL Database" in output
+        assert "grafana.com" in output
+
+
+class TestRenderPrometheusRulesNodata:
+    def test_nodata_alerting_generates_absent_rule(self) -> None:
+        import yaml
+
+        plan = ObservabilityPlan(
+            platform_summary="test",
+            alerts=[
+                AlertRule(
+                    alert_name="ReplicationLagHigh",
+                    severity="critical",
+                    expr="pg_replication_lag_bytes > 100",
+                    nodata_state="alerting",
+                ),
+            ],
+        )
+        output = render_prometheus_rules(plan)
+        parsed = yaml.safe_load(output)
+        group_names = [g["name"] for g in parsed["groups"]]
+        assert "k8s_observability_absent_metrics" in group_names
+        absent_group = [g for g in parsed["groups"] if g["name"] == "k8s_observability_absent_metrics"][0]
+        assert any("Absent" in r["alert"] for r in absent_group["rules"])
+
+    def test_nodata_ok_no_absent_rule(self) -> None:
+        import yaml
+
+        plan = ObservabilityPlan(
+            platform_summary="test",
+            alerts=[
+                AlertRule(
+                    alert_name="HighCPU",
+                    severity="warning",
+                    expr="rate(cpu[5m]) > 0.9",
+                    nodata_state="ok",
+                ),
+            ],
+        )
+        output = render_prometheus_rules(plan)
+        parsed = yaml.safe_load(output)
+        # Should only have the main group, no absent metrics group
+        group_names = [g["name"] for g in parsed["groups"]]
+        assert "k8s_observability_absent_metrics" not in group_names
+
+    def test_nodata_label_present(self) -> None:
+        plan = ObservabilityPlan(
+            platform_summary="test",
+            alerts=[
+                AlertRule(
+                    alert_name="CritAlert",
+                    severity="critical",
+                    expr="up == 0",
+                    nodata_state="alerting",
+                ),
+            ],
+        )
+        output = render_prometheus_rules(plan)
+        assert 'nodata_state: "alerting"' in output
 
 
 class TestWriteOutputs:

@@ -1,0 +1,31 @@
+# Cluster Validation Report
+
+**Cluster:** {{ cluster_summary }}
+
+## Validation Checks
+
+| # | Check | Status | Details | Fix |
+|---|-------|--------|---------|-----|
+{% for check in checks %}
+| {{ loop.index }} | {{ check.name }} | {{ check.status | upper }} | {{ check.message }} | {% if check.fix_applied %}{{ check.fix_description }}{% else %}—{% endif %} |
+{% endfor %}
+
+**Summary:** {{ checks | selectattr('status', 'equalto', 'pass') | list | length }} passed, {{ checks | selectattr('status', 'equalto', 'fail') | list | length }} failed, {{ checks | selectattr('status', 'equalto', 'warn') | list | length }} warnings
+
+{% if dashboards_imported %}
+## Dashboards Imported
+
+| Dashboard ID | Title | Status |
+|-------------|-------|--------|
+{% for d in dashboards_imported %}
+| {{ d.dashboard_id }} | {{ d.title }} | {{ d.status }} |
+{% endfor %}
+{% endif %}
+
+{% if recommendations %}
+## Remaining Action Items
+
+{% for rec in recommendations %}
+{{ loop.index }}. {{ rec }}
+{% endfor %}
+{% endif %}
