@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from importlib.resources import files as importlib_files
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from k8s_observability_agent.models import ObservabilityPlan
+from k8s_observability_agent.models import ObservabilityPlan, ValidationReport
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,20 @@ def render_plan_summary(plan: ObservabilityPlan) -> str:
     env = _get_jinja_env()
     template = env.get_template("plan_summary.md.j2")
     return template.render(plan=plan)
+
+
+def render_validation_report_html(
+    report: ValidationReport,
+    plan: ObservabilityPlan | None = None,
+) -> str:
+    """Render the validation report as a self-contained HTML page."""
+    env = _get_jinja_env()
+    template = env.get_template("validation_report.html.j2")
+    return template.render(
+        report=report,
+        plan=plan,
+        generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+    )
 
 
 def write_outputs(plan: ObservabilityPlan, output_dir: Path) -> list[str]:

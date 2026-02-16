@@ -10,3 +10,4 @@ build/
 observability-output/
 .pytest_cache/
 .ruff_cache/
+k8s-observability-agent/

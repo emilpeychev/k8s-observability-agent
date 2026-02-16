@@ -33,6 +33,14 @@ Unlike generic "add CPU/memory alerts" tools, this agent **fingerprints your wor
 - **Diagnoses** issues using pod logs, events, and cluster state
 - **Reports** exactly what was fixed and what still needs attention
 
+### 5. HTML report served in-cluster
+
+- **Renders** a styled HTML validation report from the agent's findings using Jinja2
+- **Deploys** the report as an nginx pod in the `observability-report` namespace
+- **Exposes** it via Istio Gateway + VirtualService at `http://report.local`
+- **Adds** `report.local` → Istio gateway IP to `/etc/hosts` automatically
+- Report includes: validation checks, imported dashboards, suggested community dashboards, alert rules, metrics, and action items
+
 ## Workload Classification
 
 The classifier is the core intelligence layer. It runs **before** the LLM, so the agent already knows what each workload *is* before it starts reasoning.
@@ -104,6 +112,7 @@ pip install -e ".[dev]"
 - Python 3.11+
 - An [Anthropic API key](https://console.anthropic.com/)
 - For live cluster validation: `kubectl` configured and pointing at a cluster
+- For HTTPS endpoints with custom CA: the CA certificate file (e.g. `tls/ca.crt` from your cluster setup)
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
@@ -137,14 +146,27 @@ k8s-obs scan --github https://github.com/org/repo
 # Auto-discover Prometheus & Grafana in the cluster
 k8s-obs validate
 
-# Use explicit URLs (e.g. via port-forward)
-k8s-obs validate --prometheus-url http://localhost:9090 --grafana-url http://localhost:3000
+# With a local CA certificate (e.g. Kind cluster with custom CA)
+k8s-obs validate \
+  --prometheus-url https://prometheus.local \
+  --grafana-url https://grafana.local \
+  --ca-cert /path/to/tls/ca.crt
+
+# Fallback: port-forward when no CA cert is available
+kubectl port-forward -n monitoring svc/prometheus-server 9090:80 &
+kubectl port-forward -n monitoring svc/grafana 3000:80 &
+k8s-obs validate \
+  --prometheus-url http://localhost:9090 \
+  --grafana-url http://localhost:3000
 
 # Validate a previously generated plan
 k8s-obs validate --plan observability-output/plan.json
 
 # Allow the agent to apply fixes (deploy exporters, import dashboards, etc.)
 k8s-obs validate --allow-writes
+
+# Custom Grafana password (default is admin/admin)
+k8s-obs validate --grafana-password myNewPassword
 
 # Full pipeline: scan repo, then validate on cluster
 k8s-obs analyze ./my-repo -o output/
@@ -165,6 +187,24 @@ k8s-obs validate --help
 | `scan` | Scan repo → print platform summary | No | No |
 | `validate` | Connect to cluster → test observability → fix issues | Yes | Yes |
 
+### Validate CLI options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--prometheus-url` | *(auto-discover)* | Prometheus URL. Skips discovery when set |
+| `--grafana-url` | *(auto-discover)* | Grafana URL. Skips discovery when set |
+| `--ca-cert` | *(none)* | Path to CA certificate for TLS verification (e.g. `tls/ca.crt`) |
+| `--grafana-api-key` | *(none)* | Grafana API key or service-account token |
+| `--grafana-password` | `admin` | Grafana admin password for basic auth |
+| `--allow-writes` | `false` | Let the agent apply manifests to the cluster |
+| `--plan` | *(none)* | Path to a previously generated `plan.json` to validate against |
+| `--kubeconfig` | `~/.kube/config` | Path to kubeconfig file |
+| `--context` | *(current)* | Kubernetes context to use |
+| `--model` | `claude-sonnet-4-20250514` | Anthropic model |
+| `--max-turns` | `40` | Maximum agent reasoning turns |
+| `-o` / `--output` | `observability-output` | Output directory |
+| `-v` / `--verbose` | `false` | Show full agent reasoning |
+
 ## Output
 
 The agent writes to the output directory (default: `observability-output/`):
@@ -175,6 +215,7 @@ The agent writes to the output directory (default: `observability-output/`):
 | `grafana-*.json` | Grafana dashboard JSON definitions grouped by archetype |
 | `observability-plan.md` | Human-readable summary with dashboard recommendations and action items |
 | `validation_report.json` | *(validate only)* Structured validation report with pass/fail checks |
+| `report.html` | *(validate only)* Styled HTML report — also deployed as a pod at `http://report.local` |
 
 ## Architecture
 
@@ -198,7 +239,7 @@ k8s_observability_agent/
     prometheus_rules.yml.j2
     grafana_dashboard.json.j2
     plan_summary.md.j2
-    validation_report.md.j2
+    validation_report.html.j2
 tests/
   test_models.py        # Model unit tests
   test_scanner.py       # Scanner tests
@@ -396,12 +437,25 @@ k8s-obs analyze ./infra --model claude-sonnet-4-20250514
 
 ### 8. Validate on a live cluster
 
-After generating a plan, validate that everything actually works:
+After generating a plan, validate that everything actually works.
+
+**Option A — CA certificate (recommended for Kind/local clusters with custom CA):**
+
+```bash
+k8s-obs validate \
+  --plan observability-output/plan.json \
+  --prometheus-url https://prometheus.local \
+  --grafana-url https://grafana.local \
+  --ca-cert /path/to/kind-cluster/tls/ca.crt \
+  --allow-writes
+```
+
+**Option B — Port-forward (when self-signed certs are used or no CA exists):**
 
 ```bash
 # Port-forward Prometheus and Grafana
-kubectl port-forward -n monitoring svc/prometheus 9090:9090 &
-kubectl port-forward -n monitoring svc/grafana 3000:3000 &
+kubectl port-forward -n monitoring svc/prometheus-server 9090:80 &
+kubectl port-forward -n monitoring svc/grafana 3000:80 &
 
 # Validate with the generated plan
 k8s-obs validate \
@@ -423,6 +477,40 @@ The validation report shows:
 - Whether alert expressions evaluate correctly
 - Which dashboards were imported
 - What fixes were applied
+
+### 9. HTML report (in-cluster)
+
+With `--allow-writes`, the agent deploys the HTML report as a pod on the cluster, exposed via Istio at `http://report.local`:
+
+```bash
+k8s-obs validate \
+  --plan observability-output/plan.json \
+  --prometheus-url https://prometheus.local \
+  --grafana-url https://grafana.local \
+  --ca-cert tls/ca.crt \
+  --allow-writes
+```
+
+This creates:
+
+| Resource | Namespace | Purpose |
+|----------|-----------|--------|
+| Namespace `observability-report` | — | Isolated namespace with `istio-injection: enabled` |
+| ConfigMap `report-html` | `observability-report` | Holds the rendered HTML |
+| Deployment `obs-report` | `observability-report` | nginx:1-alpine serving the HTML |
+| Service `obs-report` | `observability-report` | ClusterIP → nginx port 80 |
+| Gateway `report-gateway` | `observability-report` | Istio ingress for `report.local` |
+| VirtualService `report-vs` | `observability-report` | Routes `report.local` → nginx |
+
+The agent auto-detects the Istio ingress gateway external IP and adds it to `/etc/hosts`:
+
+```
+172.18.0.5  report.local
+```
+
+Open `http://report.local` in your browser to see the full report.
+
+Without `--allow-writes`, the HTML is still saved locally at `observability-output/report.html`.
 
 ## License
 

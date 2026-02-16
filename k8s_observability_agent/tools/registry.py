@@ -1,3 +1,4 @@
+
 """Tool definitions exposed to the Claude agent via function-calling."""
 
 from __future__ import annotations

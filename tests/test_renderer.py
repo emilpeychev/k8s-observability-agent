@@ -4,16 +4,20 @@ from pathlib import Path
 
 from k8s_observability_agent.models import (
     AlertRule,
+    DashboardImportResult,
     DashboardPanel,
     DashboardSpec,
     GrafanaDashboardRecommendation,
     MetricRecommendation,
     ObservabilityPlan,
+    ValidationCheck,
+    ValidationReport,
 )
 from k8s_observability_agent.renderer import (
     render_grafana_dashboards,
     render_plan_summary,
     render_prometheus_rules,
+    render_validation_report_html,
     write_outputs,
 )
 
@@ -189,3 +193,50 @@ class TestWriteOutputs:
         assert len(written) >= 3  # prometheus, grafana, summary
         for path_str in written:
             assert Path(path_str).exists()
+
+
+class TestValidationReportHtml:
+    def _sample_report(self) -> ValidationReport:
+        return ValidationReport(
+            cluster_summary="kind-cilium (5 nodes)",
+            checks=[
+                ValidationCheck(name="Prometheus reachable", status="pass", message="OK"),
+                ValidationCheck(name="Node exporter targets", status="fail", message="0 active targets"),
+                ValidationCheck(name="Alert rules", status="warn", message="2 rules, 1 inactive"),
+            ],
+            dashboards_imported=[
+                DashboardImportResult(dashboard_id=1860, title="Node Exporter Full", url="http://grafana/d/abc", status="imported"),
+                DashboardImportResult(dashboard_id=7362, title="MySQL Overview", status="failed"),
+            ],
+            recommendations=["Deploy node-exporter DaemonSet", "Check MySQL ServiceMonitor"],
+        )
+
+    def test_renders_html_with_report_only(self) -> None:
+        html = render_validation_report_html(self._sample_report())
+        assert "<!DOCTYPE html>" in html
+        assert "Validation Report" in html
+        assert "Prometheus reachable" in html
+        assert "badge-pass" in html
+        assert "badge-fail" in html
+        assert "badge-warn" in html
+        assert "Node Exporter Full" in html
+        assert "Deploy node-exporter DaemonSet" in html
+
+    def test_renders_html_with_plan(self) -> None:
+        plan = _sample_plan()
+        plan.dashboard_recommendations = [
+            GrafanaDashboardRecommendation(
+                dashboard_id=1860, title="Node Exporter Full", description="Full node metrics", archetype="node",
+            ),
+        ]
+        html = render_validation_report_html(self._sample_report(), plan=plan)
+        # Plan sections should appear
+        assert "Suggested Community Dashboards" in html
+        assert "Suggested Alert Rules" in html
+        assert "Suggested Metrics" in html
+
+    def test_renders_html_without_plan(self) -> None:
+        html = render_validation_report_html(self._sample_report(), plan=None)
+        # Plan sections should NOT appear
+        assert "Suggested Community Dashboards" not in html
+        assert "Suggested Alert Rules" not in html

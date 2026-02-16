@@ -16,6 +16,7 @@ from k8s_observability_agent.analyzer import platform_report
 from k8s_observability_agent.cluster import ClusterClient
 from k8s_observability_agent.config import Settings
 from k8s_observability_agent.grafana import GrafanaClient
+from k8s_observability_agent.history import ValidationHistory
 from k8s_observability_agent.models import (
     AlertRule,
     DashboardImportResult,
@@ -25,6 +26,7 @@ from k8s_observability_agent.models import (
     MetricRecommendation,
     ObservabilityPlan,
     Platform,
+    RemediationStep,
     ValidationCheck,
     ValidationReport,
 )
@@ -326,6 +328,39 @@ engineer** by:
    - A list of all checks performed (pass/fail/warn)
    - Whether fixes were applied
    - Remaining recommendations for the operator
+   - **Concrete remediation_steps** — for EVERY failed or warned check, \
+     provide a remediation step with:
+     * A clear title and description explaining the root cause
+     * The full YAML manifest to fix it (e.g. exporter sidecar Deployment, \
+       ServiceMonitor, ConfigMap patch)
+     * Or a shell command if a manifest is not applicable
+     * Priority (high/medium/low)
+   - **dashboards_to_import** — for each workload type detected, recommend \
+     the specific Grafana community dashboard ID. Use these known good IDs:
+     * Node Exporter Full: 1860
+     * Kubernetes cluster monitoring: 315
+     * PostgreSQL: 9628
+     * MySQL: 7362
+     * MongoDB: 2583
+     * Redis: 11835
+     * Elasticsearch: 4358
+     * Kafka: 7589
+     * RabbitMQ: 10991
+     * NATS: 2279
+     * NGINX: 9614
+     * ArgoCD: 14584
+     * Istio mesh: 7639
+     * Istio performance: 11829
+     * CoreDNS: 14981
+     * Cert-Manager: 11001
+     * MinIO: 13502
+     * Harbor: 14075
+     * Tekton: 15698
+
+IMPORTANT: For each `fix_manifest` in a check or `manifest` in a remediation \
+step, provide complete, ready-to-apply YAML. The operator should be able to \
+copy-paste it into `kubectl apply -f -` and have it work. Include the \
+namespace, labels, image, ports, and any required configuration.
 
 Be thorough and systematic. Check EVERY workload. Don't just verify that \
 things exist — verify they WORK. A metric existing doesn't mean it has \
@@ -340,10 +375,49 @@ than "postgresql metrics are missing".
 
 def _build_validate_messages(
     plan: ObservabilityPlan | None = None,
+    *,
+    prometheus_url: str = "",
+    grafana_url: str = "",
+    previous_run_summary: str = "",
 ) -> list[dict[str, Any]]:
     """Build the initial message for the validation agent."""
     content_parts: list[str] = [
         "I need you to validate the observability setup on my live Kubernetes cluster.",
+    ]
+
+    if previous_run_summary:
+        content_parts.append("")
+        content_parts.append(
+            "IMPORTANT — A previous validation run is available.  Re-check the "
+            "previously failing items first instead of re-discovering everything "
+            "from scratch. Only run NEW checks if you finish re-verifying the "
+            "earlier issues."
+        )
+        content_parts.append("")
+        content_parts.append(previous_run_summary)
+
+    if prometheus_url or grafana_url:
+        content_parts.append("")
+        content_parts.append("The following monitoring endpoints are already configured and reachable:")
+        if prometheus_url:
+            content_parts.append(f"  - Prometheus: {prometheus_url}")
+        if grafana_url:
+            content_parts.append(f"  - Grafana: {grafana_url}")
+        content_parts.append("")
+        content_parts.append(
+            "Use these URLs directly when calling tools like check_scrape_targets, "
+            "validate_metric_exists, run_promql_query, list_grafana_dashboards, etc. "
+            "TLS is already handled. Do NOT suggest port-forwarding for these URLs."
+        )
+    else:
+        content_parts.append("")
+        content_parts.append(
+            "No monitoring URLs were provided. Use find_monitoring_stack to discover them. "
+            "If the discovered in-cluster URLs are not reachable from the agent, "
+            "suggest port-forwarding as a fallback."
+        )
+
+    content_parts.extend([
         "",
         "Please:",
         "1. Connect to the cluster and discover the monitoring stack",
@@ -353,7 +427,7 @@ def _build_validate_messages(
         "5. Import recommended dashboards into Grafana",
         "6. Diagnose and fix any issues you find",
         "7. Generate a validation report",
-    ]
+    ])
 
     if plan:
         content_parts.append("")
@@ -388,17 +462,24 @@ def _parse_validation_report(raw: dict[str, Any]) -> ValidationReport:
     """Convert the raw tool output from generate_validation_report into a model."""
     checks = [ValidationCheck(**c) for c in raw.get("checks", [])]
     dashboards = [DashboardImportResult(**d) for d in raw.get("dashboards_imported", [])]
+    remediation = [RemediationStep(**s) for s in raw.get("remediation_steps", [])]
+    dashboards_to_import = [
+        DashboardImportResult(**d) for d in raw.get("dashboards_to_import", [])
+    ]
     return ValidationReport(
         cluster_summary=raw.get("cluster_summary", ""),
         checks=checks,
         dashboards_imported=dashboards,
         recommendations=raw.get("recommendations", []),
+        remediation_steps=remediation,
+        dashboards_to_import=dashboards_to_import,
     )
 
 
 def run_validate_agent(
     settings: Settings,
     plan: ObservabilityPlan | None = None,
+    history: ValidationHistory | None = None,
 ) -> ValidationReport:
     """Run the validation agent against a live cluster.
 
@@ -427,24 +508,45 @@ def run_validate_agent(
 
     prometheus: PrometheusClient | None = None
     if settings.prometheus_url:
-        prometheus = PrometheusClient(settings.prometheus_url)
+        prometheus = PrometheusClient(
+            settings.prometheus_url, ca_cert=settings.ca_cert,
+        )
 
     grafana: GrafanaClient | None = None
     if settings.grafana_url:
         grafana = GrafanaClient(
             settings.grafana_url,
             api_key=settings.grafana_api_key,
+            password=settings.grafana_password,
+            ca_cert=settings.ca_cert,
         )
 
     executor = LiveToolExecutor(
         cluster=cluster,
         prometheus=prometheus,
         grafana=grafana,
+        ca_cert=settings.ca_cert,
     )
+
+    # ── Load previous run from history ──────────────────────────────
+    cluster_context = settings.kube_context or "default"
+    previous_summary = ""
+    if history is not None:
+        previous_summary = history.previous_run_summary(cluster_context)
+        if previous_summary:
+            console.print(
+                "  [cyan]Loaded previous validation run from history — "
+                "agent will re-check known issues first.[/cyan]"
+            )
 
     # ── Agentic loop ───────────────────────────────────────────────────
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    messages = _build_validate_messages(plan)
+    messages = _build_validate_messages(
+        plan,
+        prometheus_url=settings.prometheus_url,
+        grafana_url=settings.grafana_url,
+        previous_run_summary=previous_summary,
+    )
 
     report: ValidationReport | None = None
     MAX_RETRIES = 3
@@ -572,6 +674,15 @@ def run_validate_agent(
             report = ValidationReport(
                 cluster_summary="Agent did not complete within the turn limit.",
             )
+
+    # ── Save run to history ─────────────────────────────────────────
+    if history is not None and report is not None:
+        try:
+            run_id = history.save_run(cluster_context, report)
+            history.prune(cluster_context, keep=20)
+            console.print(f"  [dim]Saved validation run #{run_id} to history.[/dim]")
+        except Exception as exc:
+            logger.warning("Failed to save validation history: %s", exc)
 
     # Clean up clients
     if prometheus:

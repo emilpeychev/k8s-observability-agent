@@ -43,6 +43,8 @@ class GrafanaClient:
         api_key: str = "",
         username: str = "admin",
         password: str = "admin",
+        *,
+        ca_cert: str = "",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -53,11 +55,13 @@ class GrafanaClient:
         else:
             auth = (username, password)
 
+        verify: bool | str = ca_cert if ca_cert else True
         self._client = httpx.Client(
             base_url=self.base_url,
             headers=headers,
             auth=auth,
             timeout=_TIMEOUT,
+            verify=verify,
         )
 
     def close(self) -> None:

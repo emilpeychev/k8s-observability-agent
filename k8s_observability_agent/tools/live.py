@@ -237,7 +237,9 @@ LIVE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "generate_validation_report",
         "description": (
             "Generate the final validation report, summarising what was checked, "
-            "what passed, what failed, and what fixes were applied or recommended."
+            "what passed, what failed, and what fixes were applied or recommended. "
+            "Include concrete remediation_steps with YAML manifests for every issue, "
+            "and dashboards_to_import with grafana.com IDs for each workload type."
         ),
         "input_schema": {
             "type": "object",
@@ -267,6 +269,10 @@ LIVE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
                                 "type": "string",
                                 "description": "What fix was applied, if any.",
                             },
+                            "fix_manifest": {
+                                "type": "string",
+                                "description": "YAML manifest to apply to fix this issue. Complete and ready for kubectl apply -f -.",
+                            },
                         },
                         "required": ["name", "status", "message"],
                     },
@@ -290,8 +296,39 @@ LIVE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     },
                     "description": "Grafana dashboards that were imported.",
                 },
+                "remediation_steps": {
+                    "type": "array",
+                    "description": "Concrete fix steps. For every failed/warned check, provide a step with YAML manifest or command.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string", "description": "Short title, e.g. 'Deploy postgres_exporter sidecar'"},
+                            "description": {"type": "string", "description": "Root cause explanation and what the fix does."},
+                            "command": {"type": "string", "description": "Shell command to run (if no manifest)."},
+                            "manifest": {"type": "string", "description": "Full YAML manifest (kubectl apply -f -). Include namespace, image, ports, labels."},
+                            "dashboard_id": {"type": "integer", "description": "Grafana.com dashboard ID related to this fix (0 if none)."},
+                            "dashboard_title": {"type": "string", "description": "Dashboard title for display."},
+                            "priority": {"type": "string", "enum": ["high", "medium", "low"], "description": "Fix priority."},
+                        },
+                        "required": ["title", "priority"],
+                    },
+                },
+                "dashboards_to_import": {
+                    "type": "array",
+                    "description": "Recommended Grafana community dashboards. Include ID, title, and why it's needed.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "dashboard_id": {"type": "integer", "description": "grafana.com dashboard ID"},
+                            "title": {"type": "string"},
+                            "url": {"type": "string", "description": "URL e.g. https://grafana.com/grafana/dashboards/1860"},
+                            "status": {"type": "string", "description": "recommended | optional"},
+                        },
+                        "required": ["dashboard_id", "title", "status"],
+                    },
+                },
             },
-            "required": ["cluster_summary", "checks", "recommendations"],
+            "required": ["cluster_summary", "checks", "recommendations", "remediation_steps", "dashboards_to_import"],
         },
     },
 ]
@@ -318,10 +355,12 @@ class LiveToolExecutor:
         cluster: ClusterClient,
         prometheus: PrometheusClient | None = None,
         grafana: GrafanaClient | None = None,
+        ca_cert: str = "",
     ) -> None:
         self.cluster = cluster
         self.prometheus = prometheus
         self.grafana = grafana
+        self._ca_cert = ca_cert
 
     # ── Dispatcher ────────────────────────────────────────────────────
 
@@ -362,7 +401,7 @@ class LiveToolExecutor:
             lines.append(f"  In-cluster URL: {prom_info['url']}")
             # If we don't have a Prometheus client yet, create one
             if self.prometheus is None:
-                self.prometheus = PrometheusClient(prom_info["url"])
+                self.prometheus = PrometheusClient(prom_info["url"], ca_cert=self._ca_cert)
             if self.prometheus.is_reachable():
                 lines.append("  Status: REACHABLE")
             else:
@@ -383,7 +422,7 @@ class LiveToolExecutor:
             )
             lines.append(f"  In-cluster URL: {graf_info['url']}")
             if self.grafana is None:
-                self.grafana = GrafanaClient(graf_info["url"])
+                self.grafana = GrafanaClient(graf_info["url"], ca_cert=self._ca_cert)
             if self.grafana.is_reachable():
                 lines.append("  Status: REACHABLE")
             else:

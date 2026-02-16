@@ -75,9 +75,17 @@ class Settings(BaseModel):
         default_factory=lambda: os.environ.get("GRAFANA_API_KEY", ""),
         description="Grafana API key or service-account token.",
     )
+    grafana_password: str = Field(
+        default="admin",
+        description="Grafana admin password (default: admin).",
+    )
     allow_writes: bool = Field(
         default=False,
         description="Allow the agent to apply manifests to the cluster.",
+    )
+    ca_cert: str = Field(
+        default="",
+        description="Path to a CA certificate bundle for TLS verification (e.g. tls/ca.crt).",
     )
 
     @property

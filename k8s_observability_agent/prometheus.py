@@ -28,9 +28,14 @@ class PrometheusClient:
         Base URL of the Prometheus server (e.g. ``http://localhost:9090``).
     """
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, *, ca_cert: str = "") -> None:
         self.base_url = base_url.rstrip("/")
-        self._client = httpx.Client(base_url=self.base_url, timeout=_TIMEOUT)
+        verify: bool | str = ca_cert if ca_cert else True
+        self._client = httpx.Client(
+            base_url=self.base_url,
+            timeout=_TIMEOUT,
+            verify=verify,
+        )
 
     def close(self) -> None:
         self._client.close()
